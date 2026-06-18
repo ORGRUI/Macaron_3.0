@@ -3,26 +3,17 @@
 import { useState, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import {
-  Bookmark,
   ChevronRight,
-  Eye,
-  Sparkles,
   TrendingUp,
-  TrendingDown,
   Newspaper,
   Database,
   Calendar,
   GraduationCap,
   BarChart3,
-  Clock,
   Zap,
   ChevronLeft,
-  ChevronDown,
   ArrowLeft,
   Calculator,
-  DollarSign,
-  X,
-  PieChart,
 } from 'lucide-react'
 import { useAppStore } from '../../store/app-store'
 import { CATEGORY_GROUPS, CALENDAR_EVENTS, EVENT_TYPE_COLORS, EVENT_TYPE_LABELS } from '../../data/feed-cards'
@@ -396,31 +387,11 @@ function PortfolioDetail({ card }: { card: FeedCard }) {
   )
 }
 
-/* ========== Learn Detail ========== */
+/* ========== Card List Detail (Learn + Data) ========== */
 
-function LearnDetail({ cards }: { cards: FeedCard[] }) {
+function CardListDetail({ cards }: { cards: FeedCard[] }) {
   return (
     <div className="detail-learn">
-      {cards.map((card) => (
-        <div key={card.id} className={`fc-card accent-${card.accent}`} style={{ marginBottom: 10 }}>
-          <h3 className="fc-title">{card.title}</h3>
-          {card.body && <p className="fc-body">{card.body}</p>}
-          {card.tags && (
-            <div className="fc-tags" style={{ marginTop: 6 }}>
-              {card.tags.map((t) => <span key={t} className="fc-tag">{t}</span>)}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-/* ========== Data Detail ========== */
-
-function DataDetail({ cards }: { cards: FeedCard[] }) {
-  return (
-    <div className="detail-data">
       {cards.map((card) => (
         <div key={card.id} className={`fc-card accent-${card.accent}`} style={{ marginBottom: 10 }}>
           <h3 className="fc-title">{card.title}</h3>
@@ -481,6 +452,22 @@ function CalcResult({ label, value, highlight }: { label: string; value: string;
   )
 }
 
+function CalcTiers({ title, tiers, activeLabel }: {
+  title: string; activeLabel: string; tiers: { range: string; r: string; warn?: boolean; good?: boolean }[]
+}) {
+  return (
+    <div className="calc-tiers">
+      <div className="calc-tier-title">{title}</div>
+      {tiers.map((t) => (
+        <div key={t.range} className={`calc-tier-row ${t.range === activeLabel ? 'active' : ''}`}>
+          <span>{t.range}</span>
+          <span style={{ color: t.warn ? '#EF4444' : t.good ? '#10B981' : undefined, fontWeight: 800 }}>{t.r}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function FundBuyCalc() {
   const [amount, setAmount] = useState('100000')
   const [subFee, setSubFee] = useState('0.15')
@@ -523,15 +510,10 @@ function FundRedeemCalc() {
         <CalcResult label="费率档位" value={`${tier}（${rate}%）`} />
         <CalcResult label="赎回费用" value={`¥${fmt(a * rate / 100)}`} highlight />
       </div>
-      <div className="calc-tiers">
-        <div className="calc-tier-title">费率阶梯</div>
-        {[{ range: '< 7 天', r: '1.50%', warn: true }, { range: '7–365 天', r: '0.50%' }, { range: '1–2 年', r: '0.25%' }, { range: '≥ 2 年', r: '0.00%', good: true }].map((t) => (
-          <div key={t.range} className={`calc-tier-row ${t.range === tier ? 'active' : ''}`}>
-            <span>{t.range}</span>
-            <span style={{ color: t.warn ? '#EF4444' : t.good ? '#10B981' : undefined, fontWeight: 800 }}>{t.r}</span>
-          </div>
-        ))}
-      </div>
+      <CalcTiers title="费率阶梯" activeLabel={tier} tiers={[
+        { range: '< 7 天', r: '1.50%', warn: true }, { range: '7–365 天', r: '0.50%' },
+        { range: '1–2 年', r: '0.25%' }, { range: '≥ 2 年', r: '0.00%', good: true },
+      ]} />
     </>
   )
 }
@@ -613,15 +595,9 @@ function DividendTaxCalc() {
         <CalcResult label="税后到手" value={`¥${fmt(gross - tax)}`} highlight />
         <CalcResult label="股息率" value={`${sp > 0 ? (d / sp * 100).toFixed(2) : '0'}%`} />
       </div>
-      <div className="calc-tiers">
-        <div className="calc-tier-title">持有时间与税率</div>
-        {[{ range: '< 1 月', r: '20%', warn: true }, { range: '1–12 月', r: '10%' }, { range: '> 12 月', r: '0%', good: true }].map((t) => (
-          <div key={t.range} className={`calc-tier-row ${t.range === label ? 'active' : ''}`}>
-            <span>{t.range}</span>
-            <span style={{ color: t.warn ? '#EF4444' : t.good ? '#10B981' : undefined, fontWeight: 800 }}>{t.r}</span>
-          </div>
-        ))}
-      </div>
+      <CalcTiers title="持有时间与税率" activeLabel={label} tiers={[
+        { range: '< 1 月', r: '20%', warn: true }, { range: '1–12 月', r: '10%' }, { range: '> 12 月', r: '0%', good: true },
+      ]} />
     </>
   )
 }
@@ -828,9 +804,9 @@ export default function TopicSpace() {
       >
         {activeDetail === 'news' && newsGroup && <NewsDetail cards={newsGroup.cards} />}
         {activeDetail === 'market' && portfolioGroup && <MarketDetail cards={portfolioGroup.cards} sectorCards={sectorsGroup?.cards} />}
-        {activeDetail === 'learn' && learnGroup && <LearnDetail cards={learnGroup.cards} />}
+        {activeDetail === 'learn' && learnGroup && <CardListDetail cards={learnGroup.cards} />}
         {activeDetail === 'portfolio' && holdingsCard && <PortfolioDetail card={holdingsCard} />}
-        {activeDetail === 'data' && dataGroup && <DataDetail cards={dataGroup.cards} />}
+        {activeDetail === 'data' && dataGroup && <CardListDetail cards={dataGroup.cards} />}
         {activeDetail === 'calculator' && <CalculatorDetail />}
       </DetailPopup>
     </div>

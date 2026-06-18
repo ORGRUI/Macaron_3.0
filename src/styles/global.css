@@ -256,9 +256,6 @@ h1, h2, h3 { margin: 0; }
 }
 
 /* ========== Tab Indicator ========== */
-.ts-tab {
-  position: relative;
-}
 .ts-tab-indicator {
   position: absolute;
   bottom: 0;
@@ -586,7 +583,8 @@ h1, h2, h3 { margin: 0; }
   font-size: 13.5px; line-height: 1.55; word-break: break-word;
   box-shadow: 0 4px 20px rgba(100, 60, 140, .12), 0 1px 3px rgba(139,92,246,.06);
   font-weight: 500;
-  max-height: 160px; overflow-y: auto;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+  overflow: hidden; text-overflow: ellipsis;
 }
 .speech-bubble-content::-webkit-scrollbar { display: none; }
 .speech-bubble-tail {
@@ -800,6 +798,9 @@ h1, h2, h3 { margin: 0; }
 }
 .genui-host {
   min-height: 80px;
+}
+.genui-scope {
+  width: 100%;
 }
 .genui-loading {
   display: flex;

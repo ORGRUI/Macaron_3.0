@@ -226,99 +226,49 @@ function getHandleStyle(style: React.CSSProperties): React.CSSProperties {
 
 function getAvatarClass(expression: Expression, isTalking: boolean): string {
   if (isTalking) return 'is-talking'
-  switch (expression) {
-    case 'happy':
-      return 'is-happy'
-    case 'surprised':
-      return 'is-surprised'
-    case 'thinking':
-      return 'is-thinking'
-    case 'wink':
-      return 'is-wink'
-    default:
-      return 'is-neutral'
-  }
+  const map: Record<string, string> = { happy: 'is-happy', surprised: 'is-surprised', thinking: 'is-thinking', wink: 'is-wink' }
+  return map[expression] || 'is-neutral'
 }
 
 type MicroExpr = { type: 'none' | 'eye-dart' | 'brow-twitch'; dir?: number }
+
+function pupilTransform(px: number, py: number, dartX: number, dartY: number, centerX = '-50%', centerY = '-40%', scale = ''): React.CSSProperties {
+  return { transform: `translate(calc(${centerX} + ${px + dartX}px), calc(${centerY} + ${py + dartY}px))${scale ? ` scale(${scale})` : ''}` }
+}
 
 function getEyeState(
   expression: Expression,
   isTalking: boolean,
   pupilOffset: { x: number; y: number },
   micro: MicroExpr,
-): {
-  left: React.CSSProperties
-  right: React.CSSProperties
-  pupilLeft: React.CSSProperties
-  pupilRight: React.CSSProperties
-} {
-  // Base pupil position with pointer tracking
-  const px = pupilOffset.x
-  const py = pupilOffset.y
-  // Add micro eye-dart offset
+) {
+  const px = pupilOffset.x, py = pupilOffset.y
   const dartX = micro.type === 'eye-dart' ? (micro.dir ?? 0) * 2.5 : 0
   const dartY = micro.type === 'eye-dart' ? -0.8 : 0
+  const basePupil = pupilTransform(px, py, dartX, dartY)
+  const base = { left: {} as React.CSSProperties, right: {} as React.CSSProperties, pupilLeft: basePupil, pupilRight: basePupil }
 
-  const basePupilLeft: React.CSSProperties = {
-    transform: `translate(calc(-50% + ${px + dartX}px), calc(-40% + ${py + dartY}px))`,
-  }
-  const basePupilRight: React.CSSProperties = {
-    transform: `translate(calc(-50% + ${px + dartX}px), calc(-40% + ${py + dartY}px))`,
-  }
-
-  const base = {
-    left: {} as React.CSSProperties,
-    right: {} as React.CSSProperties,
-    pupilLeft: basePupilLeft,
-    pupilRight: basePupilRight,
-  }
-
-  if (expression === 'wink') {
-    return {
-      ...base,
-      right: { transform: 'scaleY(0.08)' },
-    }
-  }
-
+  if (expression === 'wink') return { ...base, right: { transform: 'scaleY(0.08)' } }
   if (expression === 'happy') {
-    return {
-      ...base,
-      left: { transform: 'scale(0.98)' },
-      right: { transform: 'scale(0.98)' },
-      pupilLeft: { transform: `translate(calc(-50% + ${px + dartX}px), calc(-46% + ${py + dartY}px)) scale(0.92)` },
-      pupilRight: { transform: `translate(calc(-50% + ${px + dartX}px), calc(-46% + ${py + dartY}px)) scale(0.92)` },
-    }
+    const p = pupilTransform(px, py, dartX, dartY, '-50%', '-46%', '0.92')
+    return { ...base, left: { transform: 'scale(0.98)' }, right: { transform: 'scale(0.98)' }, pupilLeft: p, pupilRight: p }
   }
-
   if (expression === 'surprised') {
-    return {
-      ...base,
-      left: { transform: 'scale(1.08)' },
-      right: { transform: 'scale(1.08)' },
-      pupilLeft: { transform: `translate(calc(-50% + ${px + dartX}px), calc(-42% + ${py + dartY}px)) scale(0.9)` },
-      pupilRight: { transform: `translate(calc(-50% + ${px + dartX}px), calc(-42% + ${py + dartY}px)) scale(0.9)` },
-    }
+    const p = pupilTransform(px, py, dartX, dartY, '-50%', '-42%', '0.9')
+    return { ...base, left: { transform: 'scale(1.08)' }, right: { transform: 'scale(1.08)' }, pupilLeft: p, pupilRight: p }
   }
-
   if (expression === 'thinking') {
     return {
       ...base,
-      left: { transform: 'scaleY(0.94)' },
-      right: { transform: 'scaleY(0.94)' },
-      pupilLeft: { transform: `translate(calc(-42% + ${px + dartX}px), calc(-46% + ${py + dartY}px)) scale(0.96)` },
-      pupilRight: { transform: `translate(calc(-58% + ${px + dartX}px), calc(-46% + ${py + dartY}px)) scale(0.96)` },
+      left: { transform: 'scaleY(0.94)' }, right: { transform: 'scaleY(0.94)' },
+      pupilLeft: pupilTransform(px, py, dartX, dartY, '-42%', '-46%', '0.96'),
+      pupilRight: pupilTransform(px, py, dartX, dartY, '-58%', '-46%', '0.96'),
     }
   }
-
   if (isTalking) {
-    return {
-      ...base,
-      pupilLeft: { transform: `translate(calc(-50% + ${px + dartX}px), calc(-43% + ${py + dartY}px)) scale(0.97)` },
-      pupilRight: { transform: `translate(calc(-50% + ${px + dartX}px), calc(-43% + ${py + dartY}px)) scale(0.97)` },
-    }
+    const p = pupilTransform(px, py, dartX, dartY, '-50%', '-43%', '0.97')
+    return { ...base, pupilLeft: p, pupilRight: p }
   }
-
   return base
 }
 

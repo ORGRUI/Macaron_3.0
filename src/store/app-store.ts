@@ -49,42 +49,17 @@ async function revealMessageText(
 
 const EXPRESSION_AFTER_TALK: Expression[] = ['happy', 'neutral', 'happy']
 const GENUI_BUILD_STEPS = ['读取聊天摘要', '合成 7 日上下文', '生成 GenUI 结构', '推送到话题空间']
-function getInitialMacaronFaceOffsets(): MacaronFaceOffsets {
-  if (typeof window !== 'undefined') {
-    const runtimeValue = (window as any).__MACARON_FACE_OFFSETS__
-    if (runtimeValue) {
-      return runtimeValue as MacaronFaceOffsets
-    }
-  }
 
-  return savedMacaronFaceOffsets as MacaronFaceOffsets
+function getInitialFromWindow<T>(windowKey: string, fallback: T): T {
+  if (typeof window !== 'undefined') {
+    const runtimeValue = (window as any)[windowKey]
+    if (runtimeValue) return runtimeValue as T
+  }
+  return fallback
 }
 
-const DEFAULT_MACARON_POSITION: MacaronPosition = savedMacaronPosition as MacaronPosition
-
-function getInitialMacaronPosition(): MacaronPosition {
-  if (typeof window !== 'undefined') {
-    const runtimeValue = (window as any).__MACARON_POSITION__
-    if (runtimeValue) {
-      return runtimeValue as MacaronPosition
-    }
-  }
-
-  return DEFAULT_MACARON_POSITION
-}
-
-const DEFAULT_MACARON_LAYOUT: MacaronLayoutOffsets = savedMacaronLayout as MacaronLayoutOffsets
-
-function getInitialMacaronLayout(): MacaronLayoutOffsets {
-  if (typeof window !== 'undefined') {
-    const runtimeValue = (window as any).__MACARON_LAYOUT__
-    if (runtimeValue) {
-      return runtimeValue as MacaronLayoutOffsets
-    }
-  }
-
-  return DEFAULT_MACARON_LAYOUT
-}
+const DEFAULT_MACARON_POSITION = savedMacaronPosition as MacaronPosition
+const DEFAULT_MACARON_LAYOUT = savedMacaronLayout as MacaronLayoutOffsets
 
 function buildConversationSummary(messages: ChatMessage[]): { text: string; messageCount: number } | null {
   const recentMessages = messages
@@ -113,9 +88,9 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   isTalking: false,
   chatMessages: [],
   searchSteps: [],
-  macaronFaceOffsets: getInitialMacaronFaceOffsets(),
-  macaronPosition: getInitialMacaronPosition(),
-  macaronLayout: getInitialMacaronLayout(),
+  macaronFaceOffsets: getInitialFromWindow('__MACARON_FACE_OFFSETS__', savedMacaronFaceOffsets as MacaronFaceOffsets),
+  macaronPosition: getInitialFromWindow('__MACARON_POSITION__', DEFAULT_MACARON_POSITION),
+  macaronLayout: getInitialFromWindow('__MACARON_LAYOUT__', DEFAULT_MACARON_LAYOUT),
   live2dModelPath: null,
   developerMode: false,
   demoDayIndex: 0,
@@ -299,12 +274,13 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
             }
             break
           }
-          case 'text-delta': {
+          case 'text-delta':
+          case 'text': {
             const delta = event.content || ''
             if (!delta) break
-            replyText += delta
+            const isFullText = event.type === 'text'
+            replyText = isFullText ? delta : replyText + delta
 
-            // Create reply message on first delta, then append
             if (!hasReply) {
               hasReply = true
               set((state) => ({
@@ -321,35 +297,7 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
             } else {
               set((state) => ({
                 chatMessages: state.chatMessages.map((msg) =>
-                  msg.id === replyId ? { ...msg, content: msg.content + delta } : msg
-                ),
-              }))
-            }
-            break
-          }
-          case 'text': {
-            // Full text (legacy/fallback) — used when server sends complete text at once
-            const fullText = event.content || ''
-            if (!fullText) break
-            replyText = fullText
-
-            if (!hasReply) {
-              hasReply = true
-              set((state) => ({
-                chatMessages: [...state.chatMessages, {
-                  id: replyId,
-                  role: 'assistant' as const,
-                  content: fullText,
-                  timestamp: Date.now(),
-                }],
-                expression: 'talking',
-                isTalking: true,
-                searchSteps: [],
-              }))
-            } else {
-              set((state) => ({
-                chatMessages: state.chatMessages.map((msg) =>
-                  msg.id === replyId ? { ...msg, content: fullText } : msg
+                  msg.id === replyId ? { ...msg, content: isFullText ? delta : msg.content + delta } : msg
                 ),
               }))
             }

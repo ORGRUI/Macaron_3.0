@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useEffect, useRef, useState } from 'react'
 import * as ReactJSXRuntime from 'react/jsx-runtime'
+import { useStyleScope } from '@genui/unocss'
 
 interface GenUICardProps {
   code: string
@@ -68,6 +69,14 @@ export default function GenUICard({ code, streaming }: GenUICardProps) {
   const initRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const styleScope = useStyleScope()
+
+  // Prime UnoCSS styles whenever code changes
+  useEffect(() => {
+    if (code) {
+      styleScope?.prime(code)
+    }
+  }, [code, styleScope])
 
   useEffect(() => {
     if (initRef.current) return

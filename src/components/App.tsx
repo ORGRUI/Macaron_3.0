@@ -85,35 +85,17 @@ function EnvironmentPanel() {
 
   const saveMacaronFaceOffsets = async () => {
     try {
-      const [faceRes, posRes, layoutRes] = await Promise.all([
-        fetch('/api/macaron-face', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(macaronFaceOffsets),
-        }),
-        fetch('/api/macaron-position', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(macaronPosition),
-        }),
-        fetch('/api/macaron-layout', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(macaronLayout),
-        }),
-      ])
-      const faceData = await faceRes.json().catch(() => ({}))
-      const posData = await posRes.json().catch(() => ({}))
-      const layoutData = await layoutRes.json().catch(() => ({}))
-      if (!faceRes.ok) {
-        throw new Error(faceData.error || '五官保存失败')
-      }
-      if (!posRes.ok) {
-        throw new Error(posData.error || '位置保存失败')
-      }
-      if (!layoutRes.ok) {
-        throw new Error(layoutData.error || '布局保存失败')
-      }
+      const endpoints = [
+        { url: '/api/macaron-face', data: macaronFaceOffsets, label: '五官' },
+        { url: '/api/macaron-position', data: macaronPosition, label: '位置' },
+        { url: '/api/macaron-layout', data: macaronLayout, label: '布局' },
+      ]
+      const results = await Promise.all(
+        endpoints.map(async ({ url, data, label }) => {
+          const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+          if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `${label}保存失败`) }
+        })
+      )
       showFeedback('五官、位置与布局已保存到项目配置')
     } catch (err: any) {
       showFeedback(err.message || '保存失败')
@@ -306,7 +288,7 @@ function AppInner() {
         </div>
 
         <div className="stage" onPointerDown={handleStagePointerDown} onPointerUp={handleStagePointerUp}>
-          {/* Avatar Screen */}
+          {/* 互动界面 / 聊天界面 (Interaction View / Chat View) — 左滑进入话题空间 */}
           <motion.div
             className="screen"
             style={{ display: 'flex' }}
@@ -323,7 +305,7 @@ function AppInner() {
             </div>
           </motion.div>
 
-          {/* Topics Screen */}
+          {/* 话题空间 (Topic Space) — 右滑回到互动界面 */}
           <motion.div
             className="screen"
             style={{ display: 'flex' }}

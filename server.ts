@@ -39,12 +39,9 @@ const MACARON_POSITION_PATH = join(import.meta.dir, 'src/data/macaron-position.j
 const MACARON_LAYOUT_PATH = join(import.meta.dir, 'src/data/macaron-layout.json')
 const TOPIC_STATE_PATH = join(import.meta.dir, 'src/data/topic-state.json')
 
-// ── Agent 1: gpt-4o (Router / Default Chat via Azure) ───────────
-const AGENT1_ENDPOINT =
-  process.env.AGENT1_ENDPOINT ||
-  'https://rioy-modz6fhy-swedencentral.cognitiveservices.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2025-01-01-preview'
+// ── Agent 1: gemini-3.5-flash (Router / Default Chat via Vertex AI) ──
 const AGENT1_API_KEY = process.env.AGENT1_API_KEY || ''
-const AGENT1_MODEL = process.env.AGENT1_MODEL || 'gpt-4o'
+const AGENT1_MODEL = process.env.AGENT1_MODEL || 'gemini-3.5-flash'
 
 // ── Agent 2: gpt-5.4 (Search Agent via Azure Responses API) ─────
 const AZURE_ENDPOINT =
@@ -58,8 +55,8 @@ const EXA_API_KEY = process.env.EXA_API_KEY || ''
 const EXA_ENDPOINT = 'https://api.exa.ai/search'
 const AGENT2_MAX_TOOL_ROUNDS = 5
 
-// Gemini config (optional, used when GEMINI_API_KEY is set)
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ''
+// Gemini config (used for vision; falls back to Agent 1 key)
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || AGENT1_API_KEY
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
 
 interface TopicState {
@@ -156,11 +153,17 @@ const AGENT1_SYSTEM_PROMPT = `你是 Macaron，一个可爱、聪明的 AI 虚�
 5. 用户说”做一个””画一个””展示””可视化”等 → target_agent: “genui”
 6. 回答适合用视觉化展示（对比表、数据卡片等）→ target_agent: “genui”
 
-调用 handoff 时，你必须在 content 中同时回复一句简短的过渡语。要求：
-- 自然地接话，像朋友聊天，不要有”模板感”
-- 每次都不一样，用你自己的话说
-- 不要用固定句式（禁止”我去查查””我去瞄一眼””让我搜一下”这类套路）
-- 简短就好，一句话
+调用 handoff 时，在 greeting 参数中写一句简短的过渡语。要求：
+- 像朋友聊天一样自然地接话
+- 绝对不要复述用户的问题（比如用户问天气，不要说”天气，我去查查”）
+- 不要用固定句式（禁止”我去查查””我去瞄一眼””让我搜一下””等我一下”这类套路）
+- 可以表达你自己的好奇、兴趣、期待，比如：
+  · “诶这个我也好奇，稍等~”
+  · “好问题！让我翻翻看”
+  · “哦？我正好想了解一下”
+  · “嗯嗯，我去瞅瞅最新的消息”
+  · “来来来，我给你整一个~”（genui场景）
+- 每次都要不一样，简短就好，一句话
 
 不调用 handoff 的场景：纯闲聊、常识、概念解释等不需要实时数据或可视化的问题。
 绝对不要编造实时数据。`
@@ -179,17 +182,24 @@ const GENUI_SYSTEM_PROMPT = `你是 Macaron 的可视化卡片生成模块。你
 
 TSX 规则：
 - 必须有 export default function App()
-- 只能 import from "react"（如 useState, useEffect, useMemo）
+- 只能 import from "react"（如 useState, useEffect, useMemo, useCallback）
+- 禁止使用 React.use()、useFormStatus 等实验性 API
 - 用 Tailwind CSS 类名做样式（如 "flex items-center gap-2 p-4 rounded-xl bg-white"）
 - 保持紧凑，适合嵌入聊天（不要做全页面布局）
 - 组件宽度 100%，高度自适应
 - 不要超过 150 行
 - 用中文标签，保持友好风格
-- 尽早到达 App 的 return 语句，把数据内联在 JSX 中
-- 不要在 App 函数之前放大数组，这会让用户看到空白
 - 每个按钮/控件必须有实际功能（用 useState 管理交互状态）
 - 使用柔和的颜色搭配，避免大面积鲜艳色块
 - 可以用 emoji 作为图标
+
+代码结构要求（严格遵守，否则会导致渲染崩溃）：
+- 数据直接写在 return 的 JSX 里，或者用 const 数组在 App 函数内最顶部声明
+- 禁止用 const { a, b } = obj 解构对象，一律用 obj.a、obj.b 点号访问
+- 禁止把对象/数组直接放在 JSX 中渲染，如 {item} 或 {data}。必须访问具体属性，如 {item.name}
+- .map() 回调必须返回 JSX 元素，且必须有 key，回调体内直接用参数点属性（如 item.temp），不要再解构
+- 错误示例：items.map(({name, temp}) => ...)  ← 流式渲染中会崩溃
+- 正确示例：items.map((item) => <div key={item.name}>{item.temp}°C</div>)
 
 你会收到用户的对话上下文，根据对话内容生成合适的卡片。如果用户要求的内容不适合卡片展示，你也可以在 display_tsx 之外回复文本解释。`
 
@@ -210,30 +220,31 @@ const DISPLAY_TSX_TOOL = {
 }
 
 // ── Tool Definitions ────────────────────────────────────────────
-const HANDOFF_TOOL = {
-  type: 'function' as const,
-  function: {
-    name: 'handoff',
-    description: '将对话转交给指定的专业 Agent 继续处理。调用前请先在 content 中回复用户一句过渡语。',
-    parameters: {
-      type: 'object',
-      properties: {
-        target_agent: {
-          type: 'string',
-          enum: ['search', 'genui'],
-          description: '目标 Agent。search = 联网搜索 Agent, genui = 可视化卡片生成 Agent',
-        },
-        reason: {
-          type: 'string',
-          description: '转交原因',
-        },
-        context: {
-          type: 'string',
-          description: '传递给目标 Agent 的补充上下文或搜索方向',
-        },
+const HANDOFF_FUNCTION = {
+  name: 'handoff',
+  description: '将对话转交给指定的专业 Agent 继续处理。',
+  parameters: {
+    type: 'object',
+    properties: {
+      target_agent: {
+        type: 'string',
+        enum: ['search', 'genui'],
+        description: '目标 Agent。search = 联网搜索 Agent, genui = 可视化卡片生成 Agent',
       },
-      required: ['target_agent', 'reason'],
+      greeting: {
+        type: 'string',
+        description: '给用户的过渡语（一句话）。要求自然、不重复用户原话。',
+      },
+      reason: {
+        type: 'string',
+        description: '转交原因',
+      },
+      context: {
+        type: 'string',
+        description: '传递给目标 Agent 的补充上下文或搜索方向',
+      },
     },
+    required: ['target_agent', 'greeting', 'reason'],
   },
 }
 
@@ -277,19 +288,6 @@ function extractResponseText(data: any): string {
   }
 
   return reply
-}
-
-function getStreamDelta(event: any): string {
-  if (event.type === 'response.output_text.delta') {
-    return event.delta || ''
-  }
-  if (event.type === 'response.failed') {
-    throw new Error(event.response?.error?.message || 'Response stream failed')
-  }
-  if (event.type === 'error') {
-    throw new Error(event.error?.message || event.message || 'Response stream error')
-  }
-  return ''
 }
 
 function parseSseEvent(block: string): any | null {
@@ -445,6 +443,32 @@ async function executeExaSearch(query: string): Promise<string> {
   }
 }
 
+// ── Shared SSE stream reader ─────────────────────────────────
+async function readSseStream(
+  body: ReadableStream<Uint8Array>,
+  onEvent: (parsed: any) => void | 'break'
+): Promise<void> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let sseBuffer = ''
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+
+    sseBuffer += decoder.decode(value, { stream: true }).replace(/\r/g, '')
+    const blocks = sseBuffer.split('\n\n')
+    sseBuffer = blocks.pop() || ''
+
+    for (const block of blocks) {
+      let parsed: any
+      try { parsed = parseSseEvent(block) } catch { continue }
+      if (!parsed) continue
+      if (onEvent(parsed) === 'break') return
+    }
+  }
+}
+
 interface Agent1Result {
   type: 'text' | 'handoff'
   text?: string
@@ -458,20 +482,38 @@ async function callAgent1Streaming(
   messages: Array<{ role: string; content: string }>,
   onDirectTextDelta: (delta: string) => void
 ): Promise<Agent1Result> {
-  const agent1ApiKey = requireConfig('AGENT1_API_KEY', AGENT1_API_KEY)
-  const res = await fetch(AGENT1_ENDPOINT, {
+  const apiKey = requireConfig('AGENT1_API_KEY', AGENT1_API_KEY)
+  const endpoint = `https://aiplatform.googleapis.com/v1/publishers/google/models/${AGENT1_MODEL}:streamGenerateContent?alt=sse&key=${apiKey}`
+
+  // Convert OpenAI message format → Gemini contents format
+  let systemPrompt = ''
+  const contents: Array<{ role: string; parts: Array<{ text: string }> }> = []
+
+  for (const msg of messages) {
+    if (msg.role === 'system') {
+      systemPrompt += (systemPrompt ? '\n' : '') + msg.content
+    } else {
+      contents.push({
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.content }],
+      })
+    }
+  }
+
+  const body: any = {
+    contents,
+    tools: [{ functionDeclarations: [HANDOFF_FUNCTION] }],
+    toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
+    generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
+  }
+  if (systemPrompt) {
+    body.system_instruction = { parts: [{ text: systemPrompt }] }
+  }
+
+  const res = await fetch(endpoint, {
     method: 'POST',
-    headers: {
-      'api-key': agent1ApiKey,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: AGENT1_MODEL,
-      messages,
-      tools: [HANDOFF_TOOL],
-      tool_choice: 'auto',
-      stream: true,
-    }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(30_000),
   })
 
@@ -480,96 +522,106 @@ async function callAgent1Streaming(
     throw new Error(`Agent 1 error (${res.status}): ${errText}`)
   }
 
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let sseBuffer = ''
   let content = ''
   let mode: 'pending' | 'direct' | 'handoff' = 'pending'
-  const pendingDeltas: string[] = []
-  const toolCallBuffers = new Map<number, { name: string; args: string; id: string }>()
+  let handoffArgs: any = null
 
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) break
+  await readSseStream(res.body, (parsed) => {
+    const candidate = parsed.candidates?.[0]
+    if (!candidate) return
 
-    sseBuffer += decoder.decode(value, { stream: true })
-    const blocks = sseBuffer.split('\n\n')
-    sseBuffer = blocks.pop() || ''
+    for (const part of candidate.content?.parts || []) {
+      if (part.thought) continue // skip thinking parts
 
-    for (const block of blocks) {
-      let parsed: any
-      try { parsed = parseSseEvent(block) } catch { continue }
-      if (!parsed) continue
-
-      const choice = parsed.choices?.[0]
-      if (!choice) continue
-      const delta = choice.delta
-
-      // Detect tool calls → handoff mode
-      if (delta?.tool_calls) {
-        if (mode === 'direct') {
-          // Already forwarded some content as text-delta, but it was actually greeting.
-          // Send a 'greeting-fixup' so frontend can correct.
-          mode = 'handoff'
-        } else {
-          mode = 'handoff'
-        }
-        for (const tc of delta.tool_calls) {
-          const idx = tc.index ?? 0
-          if (!toolCallBuffers.has(idx)) {
-            toolCallBuffers.set(idx, { name: tc.function?.name || '', args: '', id: tc.id || `tc-${idx}` })
-          }
-          const buf = toolCallBuffers.get(idx)!
-          if (tc.function?.name) buf.name = tc.function.name
-          if (tc.function?.arguments) buf.args += tc.function.arguments
-        }
+      if (part.functionCall) {
+        mode = 'handoff'
+        handoffArgs = part.functionCall.args || {}
       }
 
-      if (delta?.content) {
-        content += delta.content
-
-        if (mode === 'handoff') {
-          // Content alongside tool calls = greeting text, just buffer
-        } else if (mode === 'direct') {
-          // Already confirmed direct → forward immediately
-          onDirectTextDelta(delta.content)
-        } else {
-          // First content delta — forward immediately, assume direct
+      if (part.text) {
+        content += part.text
+        if (mode !== 'handoff') {
           mode = 'direct'
-          onDirectTextDelta(delta.content)
+          onDirectTextDelta(part.text)
         }
       }
     }
-  }
+  })
 
   // Stream ended — finalize
-  if (mode === 'handoff' || toolCallBuffers.size > 0) {
-    const handoffBuf = [...toolCallBuffers.values()].find((b) => b.name === 'handoff')
-    if (handoffBuf) {
-      let args: any = {}
-      try { args = JSON.parse(handoffBuf.args) } catch {}
-      const rawGreeting = content.trim()
-      const targetAgent = args.target_agent || 'search'
-      const greeting =
-        !rawGreeting ||
-        /^(好的?|没问题|收到|OK)，?.{0,15}(查|搜|看|找).{0,6}[~。！]?$/u.test(rawGreeting)
-          ? buildHandoffGreeting(messages, targetAgent, args.reason, args.context)
-          : rawGreeting
-      console.log(`[Agent 1] "${greeting}" → handoff to ${targetAgent}`)
-      console.log(`[Handoff] Reason: ${args.reason || 'N/A'}, Context: ${args.context || 'none'}`)
-      return {
-        type: 'handoff',
-        greeting,
-        targetAgent,
-        reason: args.reason || '',
-        context: args.context,
-      }
+  if (mode === 'handoff' && handoffArgs) {
+    const rawGreeting = (handoffArgs.greeting || content).trim()
+    const targetAgent = handoffArgs.target_agent || 'search'
+    const greeting = rawGreeting || buildHandoffGreeting(messages, targetAgent, handoffArgs.reason, handoffArgs.context)
+    console.log(`[Agent 1] "${greeting}" → handoff to ${targetAgent}`)
+    console.log(`[Handoff] Reason: ${handoffArgs.reason || 'N/A'}, Context: ${handoffArgs.context || 'none'}`)
+    return {
+      type: 'handoff',
+      greeting,
+      targetAgent,
+      reason: handoffArgs.reason || '',
+      context: handoffArgs.context,
     }
   }
 
   // Direct reply — content already forwarded during stream
   console.log(`[Agent 1] Direct reply (${content.length} chars)`)
   return { type: 'text', text: content }
+}
+
+// ── Shared Agent 2 tool call processor ───────────────────────
+async function processAgent2ToolCalls(
+  functionCalls: any[],
+  input: any[],
+  onSearch?: (query: string, status: 'start' | 'done') => void
+): Promise<void> {
+  for (const fc of functionCalls) {
+    const query = fc.name === 'web_search' ? ((() => { try { return JSON.parse(fc.arguments) } catch { return { query: '' } } })().query || '') : null
+    if (query !== null) {
+      console.log(`[Agent 2] web_search: "${query}"`)
+      onSearch?.(query, 'start')
+      const searchResult = await executeExaSearch(query)
+      console.log(`[Agent 2] Search returned ${searchResult.length} chars`)
+      onSearch?.(query, 'done')
+      input.push(fc, { type: 'function_call_output', call_id: fc.call_id, output: searchResult })
+    } else {
+      console.warn(`[Agent 2] Unknown tool: ${fc.name}`)
+      input.push(fc, { type: 'function_call_output', call_id: fc.call_id, output: `Unknown tool: ${fc.name}` })
+    }
+  }
+}
+
+function buildAgent2Input(
+  userMessages: Array<{ role: string; content: string }>,
+  handoffReason: string,
+  handoffContext?: string
+): any[] {
+  return [
+    { role: 'system', content: AGENT2_SYSTEM_PROMPT },
+    ...userMessages.filter((m) => m.role !== 'system'),
+    {
+      role: 'developer',
+      content: `[Handoff] 原因: ${handoffReason}${handoffContext ? `\n补充上下文: ${handoffContext}` : ''}`,
+    },
+  ]
+}
+
+async function callAgent2Round(apiKey: string, input: any[], withTools = true): Promise<any> {
+  const res = await fetch(AZURE_ENDPOINT, {
+    method: 'POST',
+    headers: { 'api-key': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: AZURE_MODEL,
+      input,
+      ...(withTools ? { tools: [WEB_SEARCH_TOOL] } : {}),
+    }),
+    signal: AbortSignal.timeout(30_000),
+  })
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({})) as any
+    throw new Error(`Agent 2 error (${res.status}): ${errData.error?.message || 'Unknown'}`)
+  }
+  return res.json()
 }
 
 async function callAgent2Loop(
@@ -579,41 +631,12 @@ async function callAgent2Loop(
   onSearch?: (query: string, status: 'start' | 'done') => void
 ): Promise<string> {
   const azureApiKey = requireConfig('AZURE_API_KEY', AZURE_API_KEY)
-  const input: any[] = [
-    { role: 'system', content: AGENT2_SYSTEM_PROMPT },
-    ...userMessages.filter((m) => m.role !== 'system'),
-    {
-      role: 'developer',
-      content: `[Handoff] 原因: ${handoffReason}${handoffContext ? `\n补充上下文: ${handoffContext}` : ''}`,
-    },
-  ]
+  const input = buildAgent2Input(userMessages, handoffReason, handoffContext)
 
   for (let round = 0; round < AGENT2_MAX_TOOL_ROUNDS; round++) {
     console.log(`[Agent 2] Round ${round + 1}`)
-
-    const azureRes = await fetch(AZURE_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'api-key': azureApiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: AZURE_MODEL,
-        input,
-        tools: [WEB_SEARCH_TOOL],
-      }),
-      signal: AbortSignal.timeout(30_000),
-    })
-
-    if (!azureRes.ok) {
-      const errData = await azureRes.json().catch(() => ({})) as any
-      throw new Error(`Agent 2 error (${azureRes.status}): ${errData.error?.message || 'Unknown'}`)
-    }
-
-    const data = await azureRes.json() as any
-    const output = data.output || []
-
-    const functionCalls = output.filter((item: any) => item.type === 'function_call')
+    const data = await callAgent2Round(azureApiKey, input)
+    const functionCalls = (data.output || []).filter((item: any) => item.type === 'function_call')
 
     if (functionCalls.length === 0) {
       const text = extractResponseText(data)
@@ -621,52 +644,12 @@ async function callAgent2Loop(
       return text
     }
 
-    for (const fc of functionCalls) {
-      if (fc.name === 'web_search') {
-        let args: any = {}
-        try { args = JSON.parse(fc.arguments) } catch { args = { query: '' } }
-        console.log(`[Agent 2] web_search: "${args.query}"`)
-        onSearch?.(args.query || '', 'start')
-
-        const searchResult = await executeExaSearch(args.query || '')
-        console.log(`[Agent 2] Search returned ${searchResult.length} chars`)
-        onSearch?.(args.query || '', 'done')
-
-        input.push(fc)
-        input.push({
-          type: 'function_call_output',
-          call_id: fc.call_id,
-          output: searchResult,
-        })
-      } else {
-        console.warn(`[Agent 2] Unknown tool: ${fc.name}`)
-        input.push(fc)
-        input.push({
-          type: 'function_call_output',
-          call_id: fc.call_id,
-          output: `Unknown tool: ${fc.name}`,
-        })
-      }
-    }
+    await processAgent2ToolCalls(functionCalls, input, onSearch)
   }
 
   console.warn(`[Agent 2] Max rounds (${AGENT2_MAX_TOOL_ROUNDS}) reached, forcing final`)
-  const finalRes = await fetch(AZURE_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'api-key': azureApiKey,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: AZURE_MODEL,
-      input: [
-        ...input,
-        { role: 'developer', content: '请根据已有的搜索结果直接给出最终回答，不要再搜索了。' },
-      ],
-    }),
-  })
-
-  const finalData = await finalRes.json() as any
+  input.push({ role: 'developer', content: '请根据已有的搜索结果直接给出最终回答，不要再搜索了。' })
+  const finalData = await callAgent2Round(azureApiKey, input, false)
   return extractResponseText(finalData)
 }
 
@@ -679,84 +662,25 @@ async function callAgent2Streaming(
   onEvent: EventEmitter
 ): Promise<void> {
   const azureApiKey = requireConfig('AZURE_API_KEY', AZURE_API_KEY)
-  const input: any[] = [
-    { role: 'system', content: AGENT2_SYSTEM_PROMPT },
-    ...userMessages.filter((m) => m.role !== 'system'),
-    {
-      role: 'developer',
-      content: `[Handoff] 原因: ${handoffReason}${handoffContext ? `\n补充上下文: ${handoffContext}` : ''}`,
-    },
-  ]
+  const input = buildAgent2Input(userMessages, handoffReason, handoffContext)
 
-  // Tool rounds: non-streaming to detect and execute tool calls
   for (let round = 0; round < AGENT2_MAX_TOOL_ROUNDS; round++) {
     console.log(`[Agent 2] Round ${round + 1}`)
-
-    const res = await fetch(AZURE_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'api-key': azureApiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: AZURE_MODEL,
-        input,
-        tools: [WEB_SEARCH_TOOL],
-      }),
-      signal: AbortSignal.timeout(30_000),
-    })
-
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({})) as any
-      throw new Error(`Agent 2 error (${res.status}): ${errData.error?.message || 'Unknown'}`)
-    }
-
-    const data = await res.json() as any
-    const output = data.output || []
-    const functionCalls = output.filter((item: any) => item.type === 'function_call')
+    const data = await callAgent2Round(azureApiKey, input)
+    const functionCalls = (data.output || []).filter((item: any) => item.type === 'function_call')
 
     if (functionCalls.length === 0) {
-      // No tool calls → final answer came non-streaming on this round.
-      // This can happen if the model answers directly without searching.
-      // Send as one chunk (acceptable — no search latency to hide).
       const text = extractResponseText(data)
       console.log(`[Agent 2] Final response (${text.length} chars) — no tools called`)
       onEvent({ type: 'text-delta', content: text || '抱歉，搜索后我仍无法回答这个问题。' })
       return
     }
 
-    // Process tool calls
-    for (const fc of functionCalls) {
-      if (fc.name === 'web_search') {
-        let args: any = {}
-        try { args = JSON.parse(fc.arguments) } catch { args = { query: '' } }
-        console.log(`[Agent 2] web_search: "${args.query}"`)
-        onEvent({ type: 'tool', name: 'web_search', query: args.query || '', status: 'start' })
-
-        const searchResult = await executeExaSearch(args.query || '')
-        console.log(`[Agent 2] Search returned ${searchResult.length} chars`)
-        onEvent({ type: 'tool', name: 'web_search', query: args.query || '', status: 'done' })
-
-        input.push(fc)
-        input.push({
-          type: 'function_call_output',
-          call_id: fc.call_id,
-          output: searchResult,
-        })
-      } else {
-        console.warn(`[Agent 2] Unknown tool: ${fc.name}`)
-        input.push(fc)
-        input.push({
-          type: 'function_call_output',
-          call_id: fc.call_id,
-          output: `Unknown tool: ${fc.name}`,
-        })
-      }
-    }
+    await processAgent2ToolCalls(functionCalls, input, (query, status) => {
+      onEvent({ type: 'tool', name: 'web_search', query, status })
+    })
   }
 
-  // All tool rounds done (either loop finished or max reached)
-  // Stream the final answer so the user sees token-by-token output
   console.log(`[Agent 2] Tool rounds done, streaming final answer...`)
   await streamAgent2FinalAnswer(azureApiKey, input, onEvent)
 }
@@ -785,33 +709,16 @@ async function streamAgent2FinalAnswer(
     throw new Error(`Agent 2 stream error (${res.status}): ${errText}`)
   }
 
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let sseBuffer = ''
-
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) break
-
-    sseBuffer += decoder.decode(value, { stream: true })
-    const blocks = sseBuffer.split('\n\n')
-    sseBuffer = blocks.pop() || ''
-
-    for (const block of blocks) {
-      let parsed: any
-      try { parsed = parseSseEvent(block) } catch { continue }
-      if (!parsed) continue
-
-      if (parsed.type === 'response.output_text.delta' && parsed.delta) {
-        onEvent({ type: 'text-delta', content: parsed.delta })
-      }
-      if (parsed.type === 'response.failed' || parsed.type === 'error') {
-        const errMsg = parsed.response?.error?.message || parsed.error?.message || 'Stream failed'
-        console.error(`[Agent 2] Stream error: ${errMsg}`)
-        throw new Error(errMsg)
-      }
+  await readSseStream(res.body, (parsed) => {
+    if (parsed.type === 'response.output_text.delta' && parsed.delta) {
+      onEvent({ type: 'text-delta', content: parsed.delta })
     }
-  }
+    if (parsed.type === 'response.failed' || parsed.type === 'error') {
+      const errMsg = parsed.response?.error?.message || parsed.error?.message || 'Stream failed'
+      console.error(`[Agent 2] Stream error: ${errMsg}`)
+      throw new Error(errMsg)
+    }
+  })
 }
 
 function extractPartialJsonString(input: string, key: string): { value: string; complete: boolean } | null {
@@ -875,78 +782,55 @@ async function callGenUIAgent(
     throw new Error(`GenUI Agent error (${res.status}): ${errText}`)
   }
 
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let sseBuffer = ''
   let argsBuffer = ''
   let callId = ''
   let lastEmittedCode = ''
   let textContent = ''
 
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) break
+  await readSseStream(res.body, (parsed) => {
+    if (parsed.type === 'response.output_text.delta') {
+      textContent += parsed.delta || ''
+    }
 
-    sseBuffer += decoder.decode(value, { stream: true })
-    const blocks = sseBuffer.split('\n\n')
-    sseBuffer = blocks.pop() || ''
+    if (parsed.type === 'response.output_item.added' && parsed.item?.type === 'function_call') {
+      callId = parsed.item.call_id || parsed.item.id || ''
+      console.log(`[GenUI] function_call started, call_id: ${callId}, name: ${parsed.item.name || ''}`)
+    }
 
-    for (const block of blocks) {
-      let parsed: any
-      try { parsed = parseSseEvent(block) } catch { continue }
-      if (!parsed) continue
-
-      // Text output deltas
-      if (parsed.type === 'response.output_text.delta') {
-        textContent += parsed.delta || ''
-      }
-
-      // Function call started — capture call_id
-      if (parsed.type === 'response.output_item.added' && parsed.item?.type === 'function_call') {
-        callId = parsed.item.call_id || parsed.item.id || ''
-        console.log(`[GenUI] function_call started, call_id: ${callId}, name: ${parsed.item.name || ''}`)
-      }
-
-      // Function call arguments streaming delta
-      if (parsed.type === 'response.function_call_arguments.delta') {
-        argsBuffer += parsed.delta || ''
-
-        const extracted = extractPartialJsonString(argsBuffer, 'code')
-        if (extracted?.value.trim() && extracted.value !== lastEmittedCode) {
-          // Throttle: only emit when enough new code has arrived (20+ chars) or stream is complete
-          if (extracted.complete || extracted.value.length - lastEmittedCode.length >= 20) {
-            lastEmittedCode = extracted.value
-            onEvent({
-              type: 'tsx-preview',
-              toolCallId: callId || parsed.item_id || 'genui',
-              output: { ok: true, code: extracted.value, streaming: !extracted.complete },
-            })
-          }
-        }
-      }
-
-      // Function call arguments done (final)
-      if (parsed.type === 'response.function_call_arguments.done') {
-        const finalArgs = parsed.arguments || argsBuffer
-        const extracted = extractPartialJsonString(finalArgs, 'code')
-        if (extracted?.value.trim()) {
+    if (parsed.type === 'response.function_call_arguments.delta') {
+      argsBuffer += parsed.delta || ''
+      const extracted = extractPartialJsonString(argsBuffer, 'code')
+      if (extracted?.value.trim() && extracted.value !== lastEmittedCode) {
+        if (extracted.complete || extracted.value.length - lastEmittedCode.length >= 80) {
           lastEmittedCode = extracted.value
           onEvent({
             type: 'tsx-preview',
             toolCallId: callId || parsed.item_id || 'genui',
-            output: { ok: true, code: extracted.value, streaming: false },
+            output: { ok: true, code: extracted.value, streaming: !extracted.complete },
           })
         }
       }
+    }
 
-      // Handle errors
-      if (parsed.type === 'response.failed' || parsed.type === 'error') {
-        const errMsg = parsed.response?.error?.message || parsed.error?.message || 'GenUI stream failed'
-        console.error(`[GenUI] Stream error: ${errMsg}`)
-        throw new Error(errMsg)
+    if (parsed.type === 'response.function_call_arguments.done') {
+      const finalArgs = parsed.arguments || argsBuffer
+      const extracted = extractPartialJsonString(finalArgs, 'code')
+      if (extracted?.value.trim()) {
+        lastEmittedCode = extracted.value
+        onEvent({
+          type: 'tsx-preview',
+          toolCallId: callId || parsed.item_id || 'genui',
+          output: { ok: true, code: extracted.value, streaming: false },
+        })
       }
     }
-  }
+
+    if (parsed.type === 'response.failed' || parsed.type === 'error') {
+      const errMsg = parsed.response?.error?.message || parsed.error?.message || 'GenUI stream failed'
+      console.error(`[GenUI] Stream error: ${errMsg}`)
+      throw new Error(errMsg)
+    }
+  })
 
   if (textContent.trim()) {
     onEvent({ type: 'text', content: textContent.trim() })
@@ -969,13 +853,7 @@ const MIME_TYPES: Record<string, string> = {
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
   '.moc3': 'application/octet-stream',
-  '.motion3.json': 'application/json',
-  '.exp3.json': 'application/json',
-  '.model3.json': 'application/json',
-  '.physics3.json': 'application/json',
-  '.pose3.json': 'application/json',
-  '.cdi3.json': 'application/json',
-  '.userdata3.json': 'application/json',
+  '.wasm': 'application/wasm',
   '.wav': 'audio/wav',
 }
 
@@ -1008,24 +886,10 @@ function serveStatic(pathname: string): Response | null {
 
   if (isHtml) {
     const html = rawContent.toString('utf-8')
-    let faceOffsets = '{}'
-    let positionData = '{"home":{"x":0,"y":0},"peek":{"x":0,"y":0}}'
-    let layoutData = '{"speechZone":{"x":0,"y":0},"bottomDock":{"x":0,"y":0}}'
-    try {
-      faceOffsets = readFileSync(MACARON_FACE_PATH, 'utf-8').trim()
-    } catch (err) {
-      console.error('Failed to read macaron face offsets for HTML injection:', err)
-    }
-    try {
-      positionData = readFileSync(MACARON_POSITION_PATH, 'utf-8').trim()
-    } catch (err) {
-      console.error('Failed to read macaron position for HTML injection:', err)
-    }
-    try {
-      layoutData = readFileSync(MACARON_LAYOUT_PATH, 'utf-8').trim()
-    } catch (err) {
-      console.error('Failed to read macaron layout for HTML injection:', err)
-    }
+    const readJsonOr = (p: string, fallback: string) => { try { return readFileSync(p, 'utf-8').trim() } catch { return fallback } }
+    const faceOffsets = readJsonOr(MACARON_FACE_PATH, '{}')
+    const positionData = readJsonOr(MACARON_POSITION_PATH, '{"home":{"x":0,"y":0},"peek":{"x":0,"y":0}}')
+    const layoutData = readJsonOr(MACARON_LAYOUT_PATH, '{"speechZone":{"x":0,"y":0},"bottomDock":{"x":0,"y":0}}')
 
     content = html.replace(
       '</head>',
@@ -1039,6 +903,44 @@ function serveStatic(pathname: string): Response | null {
       'Cache-Control': shouldDisableCache ? 'no-cache, no-store, must-revalidate' : 'public, max-age=3600, immutable',
     },
   })
+}
+
+// ── Generic JSON file endpoint handler ───────────────────────
+const JSON_FILE_ENDPOINTS: Record<string, { path: string; keys: readonly string[] }> = {
+  '/api/macaron-face': { path: MACARON_FACE_PATH, keys: ['leftBrow', 'rightBrow', 'leftEye', 'rightEye', 'mouth'] },
+  '/api/macaron-position': { path: MACARON_POSITION_PATH, keys: ['home', 'peek'] },
+  '/api/macaron-layout': { path: MACARON_LAYOUT_PATH, keys: ['speechZone', 'bottomDock'] },
+}
+
+const NO_CACHE_HEADERS = { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+
+function handleJsonFileGet(filePath: string): Response {
+  try {
+    const raw = readFileSync(filePath, 'utf-8')
+    return new Response(raw, {
+      headers: { 'Content-Type': 'application/json; charset=utf-8', ...NO_CACHE_HEADERS },
+    })
+  } catch (err: any) {
+    return Response.json({ error: err.message || 'Failed to read' }, { status: 500 })
+  }
+}
+
+async function handleJsonFilePost(req: Request, filePath: string, keys: readonly string[]): Promise<Response> {
+  try {
+    const body = await req.json() as Record<string, { x: number; y: number }>
+    const next: Record<string, { x: number; y: number }> = {}
+    for (const key of keys) {
+      const value = body[key]
+      if (!value || typeof value.x !== 'number' || typeof value.y !== 'number') {
+        return Response.json({ error: `Invalid payload for ${key}` }, { status: 400 })
+      }
+      next[key] = { x: Math.round(value.x), y: Math.round(value.y) }
+    }
+    writeFileSync(filePath, `${JSON.stringify(next, null, 2)}\n`, 'utf-8')
+    return Response.json({ ok: true })
+  } catch (err: any) {
+    return Response.json({ error: err.message || 'Failed to save' }, { status: 500 })
+  }
 }
 
 const server = Bun.serve({
@@ -1099,11 +1001,8 @@ const server = Bun.serve({
 
     if (url.pathname === '/api/topic-state' && req.method === 'GET') {
       try {
-        return Response.json(readTopicState(), {
-          headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' },
-        })
+        return Response.json(readTopicState(), { headers: NO_CACHE_HEADERS })
       } catch (err: any) {
-        console.error('Topic state API read error:', err)
         return Response.json({ error: err.message || 'Failed to read topic state' }, { status: 500 })
       }
     }
@@ -1112,138 +1011,19 @@ const server = Bun.serve({
       try {
         const now = new Date().toISOString()
         const current = readTopicState()
-        const next: TopicState = {
-          ...current,
-          unreadCount: 0,
-          lastReadAt: now,
-          updatedAt: now,
-        }
+        const next: TopicState = { ...current, unreadCount: 0, lastReadAt: now, updatedAt: now }
         writeTopicState(next)
-        return Response.json(next, {
-          headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' },
-        })
+        return Response.json(next, { headers: NO_CACHE_HEADERS })
       } catch (err: any) {
-        console.error('Topic state API mark-read error:', err)
         return Response.json({ error: err.message || 'Failed to mark topics as read' }, { status: 500 })
       }
     }
 
-    if (url.pathname === '/api/macaron-face' && req.method === 'POST') {
-      try {
-        const body = await req.json() as Record<string, { x: number; y: number }>
-        const allowed = ['leftBrow', 'rightBrow', 'leftEye', 'rightEye', 'mouth'] as const
-        const next: Record<string, { x: number; y: number }> = {}
-
-        for (const key of allowed) {
-          const value = body[key]
-          if (!value || typeof value.x !== 'number' || typeof value.y !== 'number') {
-            return Response.json({ error: `Invalid payload for ${key}` }, { status: 400 })
-          }
-          next[key] = {
-            x: Math.round(value.x),
-            y: Math.round(value.y),
-          }
-        }
-
-        writeFileSync(MACARON_FACE_PATH, `${JSON.stringify(next, null, 2)}\n`, 'utf-8')
-        return Response.json({ ok: true })
-      } catch (err: any) {
-        console.error('Macaron face save error:', err)
-        return Response.json({ error: err.message || 'Failed to save macaron face offsets' }, { status: 500 })
-      }
-    }
-
-    if (url.pathname === '/api/macaron-face' && req.method === 'GET') {
-      try {
-        const raw = readFileSync(MACARON_FACE_PATH, 'utf-8')
-        return new Response(raw, {
-          headers: {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-          },
-        })
-      } catch (err: any) {
-        console.error('Macaron face read error:', err)
-        return Response.json({ error: err.message || 'Failed to read macaron face offsets' }, { status: 500 })
-      }
-    }
-
-    if (url.pathname === '/api/macaron-position' && req.method === 'POST') {
-      try {
-        const body = await req.json() as { home?: { x: number; y: number }; peek?: { x: number; y: number } }
-        const next: Record<string, { x: number; y: number }> = {}
-
-        for (const key of ['home', 'peek'] as const) {
-          const value = body[key]
-          if (!value || typeof value.x !== 'number' || typeof value.y !== 'number') {
-            return Response.json({ error: `Invalid payload for ${key}` }, { status: 400 })
-          }
-          next[key] = {
-            x: Math.round(value.x),
-            y: Math.round(value.y),
-          }
-        }
-
-        writeFileSync(MACARON_POSITION_PATH, `${JSON.stringify(next, null, 2)}\n`, 'utf-8')
-        return Response.json({ ok: true })
-      } catch (err: any) {
-        console.error('Macaron position save error:', err)
-        return Response.json({ error: err.message || 'Failed to save macaron position' }, { status: 500 })
-      }
-    }
-
-    if (url.pathname === '/api/macaron-position' && req.method === 'GET') {
-      try {
-        const raw = readFileSync(MACARON_POSITION_PATH, 'utf-8')
-        return new Response(raw, {
-          headers: {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-          },
-        })
-      } catch (err: any) {
-        console.error('Macaron position read error:', err)
-        return Response.json({ error: err.message || 'Failed to read macaron position' }, { status: 500 })
-      }
-    }
-
-    if (url.pathname === '/api/macaron-layout' && req.method === 'POST') {
-      try {
-        const body = await req.json() as { speechZone?: { x: number; y: number }; bottomDock?: { x: number; y: number } }
-        const next: Record<string, { x: number; y: number }> = {}
-
-        for (const key of ['speechZone', 'bottomDock'] as const) {
-          const value = body[key]
-          if (!value || typeof value.x !== 'number' || typeof value.y !== 'number') {
-            return Response.json({ error: `Invalid payload for ${key}` }, { status: 400 })
-          }
-          next[key] = {
-            x: Math.round(value.x),
-            y: Math.round(value.y),
-          }
-        }
-
-        writeFileSync(MACARON_LAYOUT_PATH, `${JSON.stringify(next, null, 2)}\n`, 'utf-8')
-        return Response.json({ ok: true })
-      } catch (err: any) {
-        console.error('Macaron layout save error:', err)
-        return Response.json({ error: err.message || 'Failed to save macaron layout' }, { status: 500 })
-      }
-    }
-
-    if (url.pathname === '/api/macaron-layout' && req.method === 'GET') {
-      try {
-        const raw = readFileSync(MACARON_LAYOUT_PATH, 'utf-8')
-        return new Response(raw, {
-          headers: {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-          },
-        })
-      } catch (err: any) {
-        console.error('Macaron layout read error:', err)
-        return Response.json({ error: err.message || 'Failed to read macaron layout' }, { status: 500 })
-      }
+    // JSON file endpoints (face, position, layout)
+    const jsonEndpoint = JSON_FILE_ENDPOINTS[url.pathname]
+    if (jsonEndpoint) {
+      if (req.method === 'GET') return handleJsonFileGet(jsonEndpoint.path)
+      if (req.method === 'POST') return await handleJsonFilePost(req, jsonEndpoint.path, jsonEndpoint.keys)
     }
 
     if (url.pathname === '/api/live2d-models' && req.method === 'GET') {
@@ -1290,7 +1070,7 @@ const server = Bun.serve({
         // Try Gemini first if key is configured
         if (GEMINI_API_KEY) {
           try {
-            const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`
+            const geminiUrl = `https://aiplatform.googleapis.com/v1/publishers/google/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`
             const base64 = imageData.replace(/^data:image\/\w+;base64,/, '')
             const mimeType = imageData.match(/^data:(image\/\w+);/)?.[1] || 'image/jpeg'
 

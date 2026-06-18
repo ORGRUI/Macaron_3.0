@@ -9,6 +9,54 @@ import Live2DAvatar from './Live2DAvatar'
 import type { MacaronLayoutOffsets } from '../../data/types'
 
 const GenUICard = lazy(() => import('../chat/GenUICard'))
+const GenUIStyleScope = lazy(() => import('../chat/GenUIStyleScope'))
+
+// Shared SVG icons used in multiple places
+const CloseIcon = ({ size = 16 }: { size?: number }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+)
+const SendIcon = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+  </svg>
+)
+const VideoIcon = ({ size = 22 }: { size?: number }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+  </svg>
+)
+
+function useDragListener(
+  enabled: boolean,
+  dragRef: React.MutableRefObject<any>,
+  onMove: (drag: any, dx: number, dy: number) => void,
+  onEnd: (drag: any) => void,
+  deps: any[] = []
+) {
+  useEffect(() => {
+    if (!enabled) return
+    const handleMove = (e: PointerEvent) => {
+      const drag = dragRef.current
+      if (!drag || drag.pointerId !== e.pointerId) return
+      onMove(drag, e.clientX - drag.startX, e.clientY - drag.startY)
+    }
+    const handleEnd = (e: PointerEvent) => {
+      const drag = dragRef.current
+      if (!drag || drag.pointerId !== e.pointerId) return
+      onEnd(drag)
+    }
+    window.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', handleEnd)
+    window.addEventListener('pointercancel', handleEnd)
+    return () => {
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', handleEnd)
+      window.removeEventListener('pointercancel', handleEnd)
+    }
+  }, [enabled, ...deps])
+}
 
 export default function AvatarScreen() {
   const expression = useAppStore((s) => s.expression)
@@ -41,6 +89,8 @@ export default function AvatarScreen() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const speechBubbleRef = useRef<HTMLDivElement>(null)
+  const autoExpandedMsgId = useRef<string | null>(null)
   const avatarDragState = useRef<{
     pointerId: number
     startX: number
@@ -84,6 +134,25 @@ export default function AvatarScreen() {
     }
   }, [chatMessages, searchSteps, sheetExpanded])
 
+  // Auto-expand to chat view when speech bubble content exceeds 3 lines
+  useEffect(() => {
+    if (sheetExpanded) return
+    const el = speechBubbleRef.current
+    if (!el || !latestAssistant) return
+    if (autoExpandedMsgId.current === latestAssistant.id) return
+
+    const style = getComputedStyle(el)
+    const lineHeight = parseFloat(style.lineHeight) || 21
+    const paddingTop = parseFloat(style.paddingTop) || 0
+    const paddingBottom = parseFloat(style.paddingBottom) || 0
+    const textHeight = el.scrollHeight - paddingTop - paddingBottom
+
+    if (textHeight > lineHeight * 3.2) {
+      autoExpandedMsgId.current = latestAssistant.id
+      setSheetExpanded(true)
+    }
+  }, [latestAssistant?.content, latestAssistant?.id, sheetExpanded])
+
   // Avatar position dragging (dev mode only)
   const handleAvatarPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (!developerMode) return
@@ -101,38 +170,15 @@ export default function AvatarScreen() {
     ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
   }, [developerMode, macaronPosition, sheetExpanded])
 
-  useEffect(() => {
-    if (!developerMode) return
-
-    const handlePointerMoveAvatar = (event: PointerEvent) => {
-      const drag = avatarDragState.current
-      if (!drag || drag.pointerId !== event.pointerId) return
-      const dx = event.clientX - drag.startX
-      const dy = event.clientY - drag.startY
-      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
-        drag.moved = true
-      }
-      setMacaronPosition(sheetExpanded ? 'peek' : 'home', {
-        x: Math.round(drag.originX + dx),
-        y: Math.round(drag.originY + dy),
-      })
-    }
-
-    const handlePointerEndAvatar = (event: PointerEvent) => {
-      const drag = avatarDragState.current
-      if (!drag || drag.pointerId !== event.pointerId) return
-      avatarDragState.current = null
-    }
-
-    window.addEventListener('pointermove', handlePointerMoveAvatar)
-    window.addEventListener('pointerup', handlePointerEndAvatar)
-    window.addEventListener('pointercancel', handlePointerEndAvatar)
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMoveAvatar)
-      window.removeEventListener('pointerup', handlePointerEndAvatar)
-      window.removeEventListener('pointercancel', handlePointerEndAvatar)
-    }
-  }, [developerMode, setMacaronPosition, sheetExpanded])
+  useDragListener(
+    developerMode, avatarDragState,
+    (drag, dx, dy) => {
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) drag.moved = true
+      setMacaronPosition(sheetExpanded ? 'peek' : 'home', { x: Math.round(drag.originX + dx), y: Math.round(drag.originY + dy) })
+    },
+    () => { avatarDragState.current = null },
+    [setMacaronPosition, sheetExpanded]
+  )
 
   // Layout element dragging (dev mode only)
   const handleLayoutPointerDown = useCallback((part: keyof MacaronLayoutOffsets) => (event: React.PointerEvent<HTMLDivElement>) => {
@@ -141,45 +187,17 @@ export default function AvatarScreen() {
     event.stopPropagation()
     const pos = macaronLayout[part]
     layoutDragState.current = {
-      part,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: pos.x,
-      originY: pos.y,
+      part, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, originX: pos.x, originY: pos.y,
     }
     ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
   }, [developerMode, macaronLayout])
 
-  useEffect(() => {
-    if (!developerMode) return
-
-    const handlePointerMoveLayout = (event: PointerEvent) => {
-      const drag = layoutDragState.current
-      if (!drag || drag.pointerId !== event.pointerId) return
-      const dx = event.clientX - drag.startX
-      const dy = event.clientY - drag.startY
-      setMacaronLayout(drag.part, {
-        x: Math.round(drag.originX + dx),
-        y: Math.round(drag.originY + dy),
-      })
-    }
-
-    const handlePointerEndLayout = (event: PointerEvent) => {
-      const drag = layoutDragState.current
-      if (!drag || drag.pointerId !== event.pointerId) return
-      layoutDragState.current = null
-    }
-
-    window.addEventListener('pointermove', handlePointerMoveLayout)
-    window.addEventListener('pointerup', handlePointerEndLayout)
-    window.addEventListener('pointercancel', handlePointerEndLayout)
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMoveLayout)
-      window.removeEventListener('pointerup', handlePointerEndLayout)
-      window.removeEventListener('pointercancel', handlePointerEndLayout)
-    }
-  }, [developerMode, setMacaronLayout])
+  useDragListener(
+    developerMode, layoutDragState,
+    (drag, dx, dy) => { setMacaronLayout(drag.part, { x: Math.round(drag.originX + dx), y: Math.round(drag.originY + dy) }) },
+    () => { layoutDragState.current = null },
+    [setMacaronLayout]
+  )
 
   const handleSend = () => {
     if (!inputText.trim()) return
@@ -403,6 +421,12 @@ export default function AvatarScreen() {
 
   const hasConversation = chatMessages.length > 0
 
+  const avatarElement = live2dModelPath ? (
+    <Live2DAvatar modelPath={live2dModelPath} expression={expression} isTalking={isTalking} onExpressionChange={setExpression} />
+  ) : (
+    <MacaronAvatar expression={expression} isTalking={isTalking} onExpressionChange={setExpression} />
+  )
+
   return (
     <div className={`avatar-screen ${sheetExpanded ? 'sheet-expanded' : ''}`}>
       {/* Hidden canvas for frame capture */}
@@ -422,10 +446,7 @@ export default function AvatarScreen() {
             {captureFlash && <div className="av-video-flash" />}
             <div className="av-video-controls">
               <button className="av-video-close" onClick={handleVideoToggle}>
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
+                <CloseIcon size={20} />
               </button>
               <button className="av-video-capture" onClick={handleCaptureAnalyze} disabled={isAnalyzing}>
                 <div className="av-capture-ring">
@@ -437,15 +458,16 @@ export default function AvatarScreen() {
         )}
       </AnimatePresence>
 
-      <AnimatePresence mode="wait" initial={false}>
+      <AnimatePresence initial={false}>
         {!sheetExpanded ? (
+          /* ── 互动界面 (Interaction View) ── 上滑进入聊天界面 */
           <motion.div
             key="home"
             className="av-home-stage"
-            initial={{ opacity: 0, scale: 0.96, filter: 'blur(4px)' }}
-            animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
-            exit={{ opacity: 0, scale: 0.94, y: -30, filter: 'blur(6px)' }}
-            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, scale: 1, y: 0, filter: 'blur(0px)' }}
+            exit={{ opacity: 0, scale: 0.97, y: -20, filter: 'blur(3px)' }}
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
             onPointerDown={handleSheetPointerDown}
           >
           <div className="avatar-bg-glow" />
@@ -477,7 +499,7 @@ export default function AvatarScreen() {
 
             {!pokeMsg && latestAssistant?.content.trim() && expression !== 'thinking' && (
               <div key={latestAssistant.id} className="speech-bubble">
-                <div className="speech-bubble-content">
+                <div className="speech-bubble-content" ref={speechBubbleRef}>
                   {latestAssistant.content}
                 </div>
                 <div className="speech-bubble-tail" />
@@ -492,20 +514,7 @@ export default function AvatarScreen() {
             onPointerDown={handleAvatarPointerDown}
           >
             <div className={`${pokeAnim ? `av-poke av-poke-${pokeAnim}` : ''} ${expression === 'thinking' ? 'av-thinking-loop' : ''}`}>
-            {live2dModelPath ? (
-              <Live2DAvatar
-                modelPath={live2dModelPath}
-                expression={expression}
-                isTalking={isTalking}
-                onExpressionChange={setExpression}
-              />
-            ) : (
-              <MacaronAvatar
-                expression={expression}
-                isTalking={isTalking}
-                onExpressionChange={setExpression}
-              />
-            )}
+            {avatarElement}
             </div>
           </div>
 
@@ -542,16 +551,10 @@ export default function AvatarScreen() {
                         onClick={() => { setShowTextBar(false); setInputText('') }}
                         aria-label="收起"
                       >
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                          <line x1="18" y1="6" x2="6" y2="18" />
-                          <line x1="6" y1="6" x2="18" y2="18" />
-                        </svg>
+                        <CloseIcon />
                       </button>
                       <button className="av-input-send-btn" onClick={handleSend} aria-label="发送" disabled={!inputText.trim()}>
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <line x1="5" y1="12" x2="19" y2="12" />
-                          <polyline points="12 5 19 12 12 19" />
-                        </svg>
+                        <SendIcon />
                       </button>
                     </div>
                   </div>
@@ -579,10 +582,7 @@ export default function AvatarScreen() {
                     onClick={handleVideoToggle}
                     aria-label="视频聊天"
                   >
-                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polygon points="23 7 16 12 23 17 23 7" />
-                      <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-                    </svg>
+                    <VideoIcon />
                   </button>
                 </motion.div>
               )}
@@ -590,13 +590,14 @@ export default function AvatarScreen() {
           </div>
         </motion.div>
       ) : (
-        <motion.div
+          /* ── 聊天界面 (Chat View) ── 从波浪线下拉回到互动界面 */
+          <motion.div
           key="expanded"
           className="av-expanded-stage"
-          initial={{ opacity: 0, y: 60, filter: 'blur(6px)' }}
+          initial={{ opacity: 0, y: 40, filter: 'blur(3px)' }}
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-          exit={{ opacity: 0, y: 60, filter: 'blur(4px)' }}
-          transition={{ type: 'spring', stiffness: 240, damping: 26 }}
+          exit={{ opacity: 0, y: 40, filter: 'blur(3px)' }}
+          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
         >
           <div className="av-living-zone">
             <div className="avatar-bg-glow avatar-bg-glow-peek" />
@@ -607,26 +608,14 @@ export default function AvatarScreen() {
               onPointerDown={handleAvatarPointerDown}
             >
               <div className={pokeAnim ? `av-poke av-poke-${pokeAnim}` : ''}>
-              {live2dModelPath ? (
-                <Live2DAvatar
-                  modelPath={live2dModelPath}
-                  expression={expression}
-                  isTalking={isTalking}
-                  onExpressionChange={setExpression}
-                />
-              ) : (
-                <MacaronAvatar
-                  expression={expression}
-                  isTalking={isTalking}
-                  onExpressionChange={setExpression}
-                />
-              )}
+              {avatarElement}
               </div>
             </div>
           </div>
 
-          <div className="av-chat-sheet is-expanded" onPointerDown={handleSheetPointerDown}>
-            <div className="av-wave-divider" />
+          {/* 聊天界面 (Chat View) — 下拉波浪线可收起回互动界面 */}
+          <div className="av-chat-sheet is-expanded">
+            <div className="av-wave-divider" onPointerDown={handleSheetPointerDown} />
 
             <div className="av-chat-scroll" ref={chatScrollRef}>
               {hasConversation ? (
@@ -657,7 +646,9 @@ export default function AvatarScreen() {
                               </div>
                             </div>
                           }>
-                            <GenUICard code={message.genui.code} streaming={message.genui.streaming} />
+                            <GenUIStyleScope code={message.genui.code}>
+                              <GenUICard code={message.genui.code} streaming={message.genui.streaming} />
+                            </GenUIStyleScope>
                           </Suspense>
                         </div>
                       )}
@@ -713,16 +704,10 @@ export default function AvatarScreen() {
                     onClick={handleVideoToggle}
                     aria-label="视频聊天"
                   >
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polygon points="23 7 16 12 23 17 23 7" />
-                      <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-                    </svg>
+                    <VideoIcon size={16} />
                   </button>
                   <button className="av-input-send-btn" onClick={handleSend} aria-label="发送" disabled={!inputText.trim()}>
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                      <polyline points="12 5 19 12 12 19" />
-                    </svg>
+                    <SendIcon />
                   </button>
                 </div>
               </div>
