@@ -33,6 +33,41 @@ h1, h2, h3 { margin: 0; }
   justify-content: center;
 }
 
+/* ===== Full split-screen when dissection is open ===== */
+.app-shell.dissection-active {
+  position: fixed;
+  inset: 0;
+  min-height: 100vh;
+  padding: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  gap: 0;
+  z-index: 100;
+}
+
+.app-shell.dissection-active .env-panel {
+  z-index: 110;
+}
+
+.dissection-left-half {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #e8e0f0, #d5c8e8);
+  position: relative;
+  overflow: hidden;
+}
+
+.dissection-right-half {
+  flex: 1;
+  display: flex;
+  position: relative;
+  overflow: hidden;
+  background: var(--dissect-bg, #0A0E27);
+}
+
 /* ========== Phone Frame ========== */
 .phone {
   position: relative; width: 390px; height: 800px; max-height: 92vh;
@@ -2195,6 +2230,30 @@ h1, h2, h3 { margin: 0; }
 .env-card-engine-body {
   margin-top: 10px;
   padding: 2px;
+}
+
+/* Dissection star-map controls in Dev Mode */
+.env-dissection-controls {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(0,0,0,.06);
+}
+.env-dissect-row {
+  margin-top: 8px;
+}
+.env-dissect-row label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #6B5B73;
+  margin-bottom: 4px;
+}
+.env-dissect-val {
+  font-weight: 700;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: #8B5CF6;
+  font-size: 12px;
 }
 
 @media (max-width: 980px) {

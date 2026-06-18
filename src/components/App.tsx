@@ -1,18 +1,20 @@
 'use client'
 
-import { useEffect, useState, Component } from 'react'
+import { useEffect, useState, Component, lazy, Suspense } from 'react'
 import type { ReactNode } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import {
   ChevronLeft,
   ChevronRight,
   Code2,
+  Globe,
   Music,
   Newspaper,
   Sparkles,
   Trash2,
   WandSparkles,
 } from 'lucide-react'
+import DissectionOverlay from './dissection/DissectionOverlay'
 import { DEMO_DAYS } from '../data/demo-timeline'
 import { useAppStore } from '../store/app-store'
 import AvatarScreen from './avatar/AvatarScreen'
@@ -66,6 +68,12 @@ function EnvironmentPanel() {
   const showFeedback = useAppStore((s) => s.showFeedback)
   const live2dModelPath = useAppStore((s) => s.live2dModelPath)
   const setLive2dModelPath = useAppStore((s) => s.setLive2dModelPath)
+  const openDissection = useAppStore((s) => s.openDissection)
+  const dissectionOpen = useAppStore((s) => s.dissectionOpen)
+  const dissectionNodeCount = useAppStore((s) => s.dissectionNodeCount)
+  const dissectionRadius = useAppStore((s) => s.dissectionRadius)
+  const setDissectionNodeCount = useAppStore((s) => s.setDissectionNodeCount)
+  const setDissectionRadius = useAppStore((s) => s.setDissectionRadius)
 
   const [live2dModels, setLive2dModels] = useState<{ name: string; modelPath: string; icon: string | null }[]>([])
   const [showCardEngine, setShowCardEngine] = useState(false)
@@ -176,6 +184,9 @@ function EnvironmentPanel() {
             <button className="env-clear-btn" onClick={() => void saveMacaronFaceOffsets()} aria-label="保存五官、位置与布局">
               <span style={{ fontWeight: 900, fontSize: 14 }}>↧</span>
             </button>
+            <button className="env-clear-btn" onClick={openDissection} aria-label="剖析" title="剖析">
+              <Globe size={15} />
+            </button>
           </div>
 
           {live2dModels.length > 0 && (
@@ -222,6 +233,56 @@ function EnvironmentPanel() {
               </div>
             )}
           </div>
+
+          {dissectionOpen && (
+            <div className="env-dissection-controls">
+              <div className="env-kicker">星图参数</div>
+              <div className="env-dissect-row">
+                <label>节点数量 <span className="env-dissect-val">{dissectionNodeCount}</span></label>
+                <input
+                  type="range"
+                  min="12"
+                  max="120"
+                  step="1"
+                  value={dissectionNodeCount}
+                  onChange={(e) => setDissectionNodeCount(Number(e.target.value))}
+                  className="env-range"
+                />
+              </div>
+              <div className="env-dissect-row">
+                <label>节点间距 <span className="env-dissect-val">{dissectionRadius}</span></label>
+                <input
+                  type="range"
+                  min="30"
+                  max="200"
+                  step="5"
+                  value={dissectionRadius}
+                  onChange={(e) => setDissectionRadius(Number(e.target.value))}
+                  className="env-range"
+                />
+              </div>
+              <button
+                className="env-generate-btn"
+                style={{ marginTop: 8, width: '100%' }}
+                onClick={async () => {
+                  try {
+                    const res = await fetch('/api/dissection-config', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ nodeCount: dissectionNodeCount, radius: dissectionRadius }),
+                    })
+                    if (!res.ok) throw new Error('保存失败')
+                    showFeedback(`星图配置已保存 (${dissectionNodeCount} 节点, 间距 ${dissectionRadius})`)
+                  } catch (err: any) {
+                    showFeedback(err.message || '保存失败')
+                  }
+                }}
+              >
+                <span style={{ fontWeight: 900, fontSize: 14 }}>↧</span>
+                保存星图配置
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -233,6 +294,7 @@ function AppInner() {
   const setTab = useAppStore((s) => s.setTab)
   const unreadTopicCount = useAppStore((s) => s.unreadTopicCount)
   const loadTopicState = useAppStore((s) => s.loadTopicState)
+  const dissectionOpen = useAppStore((s) => s.dissectionOpen)
 
   const [clock, setClock] = useState('')
   const [swipeStart, setSwipeStart] = useState<{ x: number; y: number } | null>(null)
@@ -274,98 +336,196 @@ function AppInner() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${dissectionOpen ? 'dissection-active' : ''}`}>
       <EnvironmentPanel />
 
-      <div className="phone">
-        <div className="notch" />
-        <div className="statusbar">
-          <span>{clock}</span>
-          <span className="statusbar-icons">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 6l4 4 4-4M5 6l4 4 4-4M9 6l4 4 4-4M17 6l4 4 4-4" /><path d="M5 10v10M12 6v14" /></svg>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="1" y="6" width="18" height="12" rx="2" ry="2" fill="none" stroke="currentColor" strokeWidth="2" /><rect x="4" y="9" width="12" height="6" rx="1" fill="currentColor" opacity="0.7" /><rect x="20" y="10" width="3" height="4" rx="1" fill="currentColor" /></svg>
-          </span>
-        </div>
+      {dissectionOpen ? (
+        <>
+          {/* Left half: macaron style */}
+          <div className="dissection-left-half">
+            <div className="phone">
+              <div className="notch" />
+              <div className="statusbar">
+                <span>{clock}</span>
+                <span className="statusbar-icons">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 6l4 4 4-4M5 6l4 4 4-4M9 6l4 4 4-4M17 6l4 4 4-4" /><path d="M5 10v10M12 6v14" /></svg>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="1" y="6" width="18" height="12" rx="2" ry="2" fill="none" stroke="currentColor" strokeWidth="2" /><rect x="4" y="9" width="12" height="6" rx="1" fill="currentColor" opacity="0.7" /><rect x="20" y="10" width="3" height="4" rx="1" fill="currentColor" /></svg>
+                </span>
+              </div>
 
-        <div className="stage" onPointerDown={handleStagePointerDown} onPointerUp={handleStagePointerUp}>
-          {/* 互动界面 / 聊天界面 (Interaction View / Chat View) — 左滑进入话题空间 */}
-          <motion.div
-            className="screen"
-            style={{ display: 'flex' }}
-            animate={{
-              x: activeTab === 'avatar' ? '0%' : '-35%',
-              scale: activeTab === 'avatar' ? 1 : 0.88,
-              filter: activeTab === 'avatar' ? 'blur(0px)' : 'blur(6px)',
-              opacity: activeTab === 'avatar' ? 1 : 0.3,
-            }}
-            transition={{ type: 'spring', stiffness: 260, damping: 28 }}
-          >
-            <div style={{ pointerEvents: activeTab === 'avatar' ? 'auto' : 'none', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
-              <AvatarScreen />
-            </div>
-          </motion.div>
-
-          {/* 话题空间 (Topic Space) — 右滑回到互动界面 */}
-          <motion.div
-            className="screen"
-            style={{ display: 'flex' }}
-            animate={{
-              x: activeTab === 'topics' ? '0%' : '100%',
-              scale: activeTab === 'topics' ? 1 : 1.04,
-              opacity: activeTab === 'topics' ? 1 : 0,
-            }}
-            transition={{ type: 'spring', stiffness: 260, damping: 28 }}
-          >
-            <div style={{ pointerEvents: activeTab === 'topics' ? 'auto' : 'none', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
-              <TopicSpace />
-            </div>
-          </motion.div>
-
-          {/* Shimmer Peek Strip */}
-          <AnimatePresence>
-            {activeTab === 'avatar' && (
-              <div key="peek-anchor" className="peek-strip-anchor">
+              <div className="stage" onPointerDown={handleStagePointerDown} onPointerUp={handleStagePointerUp}>
                 <motion.div
-                  className={`peek-strip ${hasUnreadTopics ? 'has-unread' : 'is-read'}`}
-                  initial={{ x: 60, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: 60, opacity: 0 }}
-                  transition={{ type: 'spring', stiffness: 300, damping: 22, delay: 0.4 }}
-                  onClick={() => setTab('topics')}
-                  aria-label={hasUnreadTopics ? `打开话题，${unreadTopicCount} 条未读` : '打开话题'}
+                  className="screen"
+                  style={{ display: 'flex' }}
+                  animate={{
+                    x: activeTab === 'avatar' ? '0%' : '-35%',
+                    scale: activeTab === 'avatar' ? 1 : 0.88,
+                    filter: activeTab === 'avatar' ? 'blur(0px)' : 'blur(6px)',
+                    opacity: activeTab === 'avatar' ? 1 : 0.3,
+                  }}
+                  transition={{ type: 'spring', stiffness: 260, damping: 28 }}
                 >
-                  <div className="peek-shimmer-wrap">
-                    <div className="peek-shimmer-glow" />
-                  </div>
-                  <div className="peek-strip-body">
-                    {hasUnreadTopics ? (
-                      <>
-                        <span className="peek-card-stack" aria-hidden="true">
-                          <span />
-                          <span />
-                          <span />
-                        </span>
-                        <span className="peek-orbit-dot" aria-hidden="true" />
-                        <span className="peek-strip-text">
-                          <span>话题</span>
-                          <small>{unreadTopicCount}</small>
-                        </span>
-                        <ChevronLeft size={12} strokeWidth={2.6} className="peek-strip-chevron" />
-                      </>
-                    ) : (
-                      <span className="peek-resting-mark" aria-hidden="true">
-                        <span />
-                      </span>
-                    )}
+                  <div style={{ pointerEvents: activeTab === 'avatar' ? 'auto' : 'none', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+                    <AvatarScreen />
                   </div>
                 </motion.div>
-              </div>
-            )}
-          </AnimatePresence>
-        </div>
 
-        <FeedbackToast />
-      </div>
+                <motion.div
+                  className="screen"
+                  style={{ display: 'flex' }}
+                  animate={{
+                    x: activeTab === 'topics' ? '0%' : '100%',
+                    scale: activeTab === 'topics' ? 1 : 1.04,
+                    opacity: activeTab === 'topics' ? 1 : 0,
+                  }}
+                  transition={{ type: 'spring', stiffness: 260, damping: 28 }}
+                >
+                  <div style={{ pointerEvents: activeTab === 'topics' ? 'auto' : 'none', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+                    <TopicSpace />
+                  </div>
+                </motion.div>
+
+                <AnimatePresence>
+                  {activeTab === 'avatar' && (
+                    <div key="peek-anchor" className="peek-strip-anchor">
+                      <motion.div
+                        className={`peek-strip ${hasUnreadTopics ? 'has-unread' : 'is-read'}`}
+                        initial={{ x: 60, opacity: 0 }}
+                        animate={{ x: 0, opacity: 1 }}
+                        exit={{ x: 60, opacity: 0 }}
+                        transition={{ type: 'spring', stiffness: 300, damping: 22, delay: 0.4 }}
+                        onClick={() => setTab('topics')}
+                        aria-label={hasUnreadTopics ? `打开话题，${unreadTopicCount} 条未读` : '打开话题'}
+                      >
+                        <div className="peek-shimmer-wrap">
+                          <div className="peek-shimmer-glow" />
+                        </div>
+                        <div className="peek-strip-body">
+                          {hasUnreadTopics ? (
+                            <>
+                              <span className="peek-card-stack" aria-hidden="true">
+                                <span />
+                                <span />
+                                <span />
+                              </span>
+                              <span className="peek-orbit-dot" aria-hidden="true" />
+                              <span className="peek-strip-text">
+                                <span>话题</span>
+                                <small>{unreadTopicCount}</small>
+                              </span>
+                              <ChevronLeft size={12} strokeWidth={2.6} className="peek-strip-chevron" />
+                            </>
+                          ) : (
+                            <span className="peek-resting-mark" aria-hidden="true">
+                              <span />
+                            </span>
+                          )}
+                        </div>
+                      </motion.div>
+                    </div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              <FeedbackToast />
+            </div>
+          </div>
+
+          {/* Right half: star map */}
+          <div className="dissection-right-half">
+            <DissectionOverlay />
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="phone">
+            <div className="notch" />
+            <div className="statusbar">
+              <span>{clock}</span>
+              <span className="statusbar-icons">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 6l4 4 4-4M5 6l4 4 4-4M9 6l4 4 4-4M17 6l4 4 4-4" /><path d="M5 10v10M12 6v14" /></svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="1" y="6" width="18" height="12" rx="2" ry="2" fill="none" stroke="currentColor" strokeWidth="2" /><rect x="4" y="9" width="12" height="6" rx="1" fill="currentColor" opacity="0.7" /><rect x="20" y="10" width="3" height="4" rx="1" fill="currentColor" /></svg>
+              </span>
+            </div>
+
+            <div className="stage" onPointerDown={handleStagePointerDown} onPointerUp={handleStagePointerUp}>
+              <motion.div
+                className="screen"
+                style={{ display: 'flex' }}
+                animate={{
+                  x: activeTab === 'avatar' ? '0%' : '-35%',
+                  scale: activeTab === 'avatar' ? 1 : 0.88,
+                  filter: activeTab === 'avatar' ? 'blur(0px)' : 'blur(6px)',
+                  opacity: activeTab === 'avatar' ? 1 : 0.3,
+                }}
+                transition={{ type: 'spring', stiffness: 260, damping: 28 }}
+              >
+                <div style={{ pointerEvents: activeTab === 'avatar' ? 'auto' : 'none', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+                  <AvatarScreen />
+                </div>
+              </motion.div>
+
+              <motion.div
+                className="screen"
+                style={{ display: 'flex' }}
+                animate={{
+                  x: activeTab === 'topics' ? '0%' : '100%',
+                  scale: activeTab === 'topics' ? 1 : 1.04,
+                  opacity: activeTab === 'topics' ? 1 : 0,
+                }}
+                transition={{ type: 'spring', stiffness: 260, damping: 28 }}
+              >
+                <div style={{ pointerEvents: activeTab === 'topics' ? 'auto' : 'none', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+                  <TopicSpace />
+                </div>
+              </motion.div>
+
+              <AnimatePresence>
+                {activeTab === 'avatar' && (
+                  <div key="peek-anchor" className="peek-strip-anchor">
+                    <motion.div
+                      className={`peek-strip ${hasUnreadTopics ? 'has-unread' : 'is-read'}`}
+                      initial={{ x: 60, opacity: 0 }}
+                      animate={{ x: 0, opacity: 1 }}
+                      exit={{ x: 60, opacity: 0 }}
+                      transition={{ type: 'spring', stiffness: 300, damping: 22, delay: 0.4 }}
+                      onClick={() => setTab('topics')}
+                      aria-label={hasUnreadTopics ? `打开话题，${unreadTopicCount} 条未读` : '打开话题'}
+                    >
+                      <div className="peek-shimmer-wrap">
+                        <div className="peek-shimmer-glow" />
+                      </div>
+                      <div className="peek-strip-body">
+                        {hasUnreadTopics ? (
+                          <>
+                            <span className="peek-card-stack" aria-hidden="true">
+                              <span />
+                              <span />
+                              <span />
+                            </span>
+                            <span className="peek-orbit-dot" aria-hidden="true" />
+                            <span className="peek-strip-text">
+                              <span>话题</span>
+                              <small>{unreadTopicCount}</small>
+                            </span>
+                            <ChevronLeft size={12} strokeWidth={2.6} className="peek-strip-chevron" />
+                          </>
+                        ) : (
+                          <span className="peek-resting-mark" aria-hidden="true">
+                            <span />
+                          </span>
+                        )}
+                      </div>
+                    </motion.div>
+                  </div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            <FeedbackToast />
+          </div>
+        </>
+      )}
     </div>
   )
 }

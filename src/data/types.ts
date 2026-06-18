@@ -223,6 +223,12 @@ export interface AppState {
   genuiBuildStep: string | null
   unreadTopicCount: number
 
+  // Dissection view
+  dissectionOpen: boolean
+  dissectionSelectedNode: string | null
+  dissectionNodeCount: number
+  dissectionRadius: number
+
   // UI
   feedbackMessage: string | null
 }
@@ -250,5 +256,10 @@ export interface AppActions {
   setDemoDay: (dayIndex: number) => void
   generateGenUITopic: () => Promise<void>
   clearGenUITopics: () => void
+  openDissection: () => void
+  closeDissection: () => void
+  selectDissectionNode: (nodeId: string | null) => void
+  setDissectionNodeCount: (count: number) => void
+  setDissectionRadius: (radius: number) => void
   showFeedback: (msg: string) => void
 }

@@ -38,6 +38,7 @@ const MACARON_FACE_PATH = join(import.meta.dir, 'src/data/macaron-face.json')
 const MACARON_POSITION_PATH = join(import.meta.dir, 'src/data/macaron-position.json')
 const MACARON_LAYOUT_PATH = join(import.meta.dir, 'src/data/macaron-layout.json')
 const TOPIC_STATE_PATH = join(import.meta.dir, 'src/data/topic-state.json')
+const DISSECTION_CONFIG_PATH = join(import.meta.dir, 'src/data/dissection-config.json')
 
 // ── Agent 1: gemini-3.5-flash (Router / Default Chat via Vertex AI) ──
 const AGENT1_API_KEY = process.env.AGENT1_API_KEY || ''
@@ -890,10 +891,11 @@ function serveStatic(pathname: string): Response | null {
     const faceOffsets = readJsonOr(MACARON_FACE_PATH, '{}')
     const positionData = readJsonOr(MACARON_POSITION_PATH, '{"home":{"x":0,"y":0},"peek":{"x":0,"y":0}}')
     const layoutData = readJsonOr(MACARON_LAYOUT_PATH, '{"speechZone":{"x":0,"y":0},"bottomDock":{"x":0,"y":0}}')
+    const dissectionConfig = readJsonOr(DISSECTION_CONFIG_PATH, '{"nodeCount":42,"radius":80}')
 
     content = html.replace(
       '</head>',
-      `<script>window.__MACARON_FACE_OFFSETS__=${faceOffsets};window.__MACARON_POSITION__=${positionData};window.__MACARON_LAYOUT__=${layoutData};</script></head>`
+      `<script>window.__MACARON_FACE_OFFSETS__=${faceOffsets};window.__MACARON_POSITION__=${positionData};window.__MACARON_LAYOUT__=${layoutData};window.__DISSECTION_CONFIG__=${dissectionConfig};</script></head>`
     )
   }
 
@@ -1024,6 +1026,29 @@ const server = Bun.serve({
     if (jsonEndpoint) {
       if (req.method === 'GET') return handleJsonFileGet(jsonEndpoint.path)
       if (req.method === 'POST') return await handleJsonFilePost(req, jsonEndpoint.path, jsonEndpoint.keys)
+    }
+
+    // Dissection config endpoint
+    if (url.pathname === '/api/dissection-config') {
+      if (req.method === 'GET') return handleJsonFileGet(DISSECTION_CONFIG_PATH)
+      if (req.method === 'POST') {
+        try {
+          const body = await req.json() as Record<string, unknown>
+          const nodeCount = Number(body.nodeCount)
+          const radius = Number(body.radius)
+          if (!Number.isFinite(nodeCount) || nodeCount < 12 || nodeCount > 120) {
+            return Response.json({ error: 'nodeCount must be 12-120' }, { status: 400 })
+          }
+          if (!Number.isFinite(radius) || radius < 30 || radius > 200) {
+            return Response.json({ error: 'radius must be 30-200' }, { status: 400 })
+          }
+          const config = { nodeCount: Math.round(nodeCount), radius: Math.round(radius) }
+          writeFileSync(DISSECTION_CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, 'utf-8')
+          return Response.json({ ok: true })
+        } catch (err: any) {
+          return Response.json({ error: err.message || 'Failed to save' }, { status: 500 })
+        }
+      }
     }
 
     if (url.pathname === '/api/live2d-models' && req.method === 'GET') {

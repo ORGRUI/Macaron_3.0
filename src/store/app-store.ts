@@ -8,6 +8,7 @@ import type { MacaronFaceOffsets, MacaronPosition, MacaronLayoutOffsets } from '
 import savedMacaronFaceOffsets from '../data/macaron-face.json'
 import savedMacaronPosition from '../data/macaron-position.json'
 import savedMacaronLayout from '../data/macaron-layout.json'
+import savedDissectionConfig from '../data/dissection-config.json'
 
 function matchCategory(text: string): string {
   const lower = text.toLowerCase()
@@ -60,6 +61,7 @@ function getInitialFromWindow<T>(windowKey: string, fallback: T): T {
 
 const DEFAULT_MACARON_POSITION = savedMacaronPosition as MacaronPosition
 const DEFAULT_MACARON_LAYOUT = savedMacaronLayout as MacaronLayoutOffsets
+const DEFAULT_DISSECTION_CONFIG = savedDissectionConfig as { nodeCount: number; radius: number }
 
 function buildConversationSummary(messages: ChatMessage[]): { text: string; messageCount: number } | null {
   const recentMessages = messages
@@ -99,6 +101,10 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
   genuiBuildStep: null,
   unreadTopicCount: 3,
   feedbackMessage: null,
+  dissectionOpen: false,
+  dissectionSelectedNode: null,
+  dissectionNodeCount: getInitialFromWindow<{ nodeCount: number; radius: number }>('__DISSECTION_CONFIG__', DEFAULT_DISSECTION_CONFIG).nodeCount,
+  dissectionRadius: getInitialFromWindow<{ nodeCount: number; radius: number }>('__DISSECTION_CONFIG__', DEFAULT_DISSECTION_CONFIG).radius,
 
   setTab: (tab) => {
     set((state) => ({
@@ -434,6 +440,16 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
     unreadTopicCount: 0,
     feedbackMessage: '已清空 GenUI 推送',
   }),
+
+  openDissection: () => set({ dissectionOpen: true }),
+
+  closeDissection: () => set({ dissectionOpen: false, dissectionSelectedNode: null }),
+
+  selectDissectionNode: (nodeId) => set({ dissectionSelectedNode: nodeId }),
+
+  setDissectionNodeCount: (count) => set({ dissectionNodeCount: count, dissectionSelectedNode: null }),
+
+  setDissectionRadius: (radius) => set({ dissectionRadius: radius }),
 
   showFeedback: (msg) => set({ feedbackMessage: msg }),
 }))

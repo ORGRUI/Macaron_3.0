@@ -1,0 +1,279 @@
+/* Dissection View — Side-by-side layout: phone left, star map right */
+
+:root {
+  --dissect-bg: #0A0E27;
+  --dissect-surface: #111638;
+  --dissect-border: #1E2550;
+  --dissect-text: #E8EAF6;
+  --dissect-text-muted: #8B8FA8;
+  --dissect-link: #C9A94C;
+  --dissect-accent: #8B5CF6;
+}
+
+/* ===== app-shell layout override when dissection is open ===== */
+/* (moved to global.css for split-screen layout) */
+
+/* ===== Right-side panel (star map) — fills entire right half ===== */
+.dissect-panel {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--dissect-bg);
+  border-radius: 0;
+  border: none;
+  border-left: 1px solid var(--dissect-border);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: none;
+}
+
+/* Close button */
+.dissect-close-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  background: rgba(17, 22, 56, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--dissect-border);
+  color: var(--dissect-text);
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+.dissect-close-btn:hover {
+  background: var(--dissect-border);
+  border-color: var(--dissect-accent);
+}
+
+/* Stats bar at top */
+.dissect-stats-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(to bottom, var(--dissect-bg) 60%, transparent);
+  pointer-events: none;
+}
+
+.dissect-stats-bar-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--dissect-text);
+  letter-spacing: 0.02em;
+}
+
+.dissect-stats-bar-hint {
+  font-size: 12px;
+  color: var(--dissect-text-muted);
+}
+
+/* Graph area fills the panel */
+.dissect-graph-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.dissect-graph-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.dissect-graph-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+  color: var(--dissect-text-muted);
+  font-size: 14px;
+}
+
+.dissect-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--dissect-border);
+  border-top-color: var(--dissect-accent);
+  border-radius: 50%;
+  animation: dissect-spin 0.8s linear infinite;
+}
+
+@keyframes dissect-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ===== Bottom drawer (node detail) ===== */
+.dissect-drawer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 8;
+  max-height: 55%;
+  background: var(--dissect-surface);
+  border-top: 1px solid var(--dissect-border);
+  border-radius: 20px 20px 0 0;
+  overflow-y: auto;
+  box-shadow: 0 -8px 32px rgba(10, 14, 39, 0.5);
+}
+
+/* Detail panel */
+.dissect-detail {
+  padding: 20px 18px;
+}
+
+.dissect-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.dissect-detail-header h2 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--dissect-text);
+}
+
+.dissect-detail-close {
+  background: none;
+  border: 1px solid var(--dissect-border);
+  color: var(--dissect-text-muted);
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+.dissect-detail-close:hover {
+  color: var(--dissect-text);
+  border-color: var(--dissect-accent);
+}
+
+.dissect-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Node info */
+.dissect-node-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dissect-node-id {
+  font-size: 20px;
+  font-weight: 800;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: var(--dissect-text);
+}
+
+.dissect-node-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.dissect-node-badge.core {
+  background: rgba(201, 169, 76, 0.2);
+  color: var(--dissect-link);
+  border: 1px solid rgba(201, 169, 76, 0.3);
+}
+.dissect-node-badge.secondary {
+  background: rgba(139, 92, 246, 0.15);
+  color: var(--dissect-accent);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+}
+.dissect-node-badge.small {
+  font-size: 10px;
+  padding: 1px 5px;
+}
+
+/* Coordinates */
+.dissect-coords h3,
+.dissect-neighbors h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dissect-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 6px;
+}
+
+.dissect-coord-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+
+.dissect-coord-grid > div {
+  background: var(--dissect-bg);
+  border: 1px solid var(--dissect-border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.dissect-coord-axis {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--dissect-link);
+}
+
+.dissect-coord-grid span:last-child {
+  font-size: 12px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: var(--dissect-text);
+}
+
+/* Neighbor list */
+.dissect-neighbor-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.dissect-neighbor-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--dissect-bg);
+  border: 1px solid var(--dissect-border);
+  border-radius: 6px;
+  color: var(--dissect-text);
+  font-size: 12px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.dissect-neighbor-btn:hover {
+  border-color: var(--dissect-accent);
+  background: rgba(139, 92, 246, 0.08);
+}
