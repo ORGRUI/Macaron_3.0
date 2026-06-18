@@ -1,0 +1,20 @@
+{
+  "name": "@genui/importmap",
+  "description": "Import-map utilities for running generated UI code in the browser: bare-specifier extraction, esm.sh fallbacks, and a Vite plugin emitting content-addressed import maps.",
+  "version": "0.0.1",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MindLab-Research/macaron-genui-demo",
+    "directory": "lib/genui-importmap"
+  },
+  "exports": {
+    ".": "./src/importMap.ts",
+    "./vite": "./src/vite.ts"
+  },
+  "files": [
+    "src/**/*",
+    "!src/**/*.test.*"
+  ],
+  "sideEffects": false
+}

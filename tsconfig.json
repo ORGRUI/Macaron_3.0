@@ -1,0 +1,17 @@
+{
+  "extends": "astro/tsconfigs/strict",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "paths": {
+      "$macaron/ui": ["./lib/ui/src"],
+      "$macaron/ui/*": ["./lib/ui/src/*"],
+      "@/*": ["./src/*"],
+      "partial-react": ["./lib/partial-react/src/runtime.tsx"],
+      "partial-react/*": ["./lib/partial-react/src/*"],
+      "partial-tsx": ["./lib/partial-tsx/src/partial.ts"],
+      "@genui/importmap": ["./lib/genui-importmap/src/importMap.ts"],
+      "@genui/unocss": ["./lib/genui-unocss/src/unoScope.tsx"]
+    }
+  }
+}

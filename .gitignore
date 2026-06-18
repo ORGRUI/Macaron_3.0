@@ -1,0 +1,16 @@
+node_modules/
+.astro/
+dist/
+demo/
+
+tmp/
+*.pem
+*.key
+
+.env
+.env.*
+
+*.log
+*.pid
+
+.DS_Store

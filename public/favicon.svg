@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <clipPath id="icon-clip">
+      <rect x="16" y="16" width="224" height="224" rx="52" ry="52" />
+    </clipPath>
+  </defs>
+  <rect width="256" height="256" rx="64" ry="64" fill="#ffffff" />
+  <image
+    href="/live2d-models/Doro/icon.png"
+    x="-14"
+    y="10"
+    width="284"
+    height="284"
+    preserveAspectRatio="xMidYMid slice"
+    clip-path="url(#icon-clip)"
+  />
+  <rect x="16" y="16" width="224" height="224" rx="52" ry="52" fill="none" stroke="#17111f" stroke-opacity="0.08" stroke-width="4" />
+</svg>

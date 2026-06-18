@@ -1,0 +1,27 @@
+{
+  "name": "@genui/unocss",
+  "description": "A shared scoped UnoCSS runtime for generated UI: on-demand style generation scoped under a host-controlled root class.",
+  "version": "0.0.1",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MindLab-Research/macaron-genui-demo",
+    "directory": "lib/genui-unocss"
+  },
+  "exports": {
+    ".": "./src/unoScope.tsx"
+  },
+  "files": [
+    "src/**/*",
+    "!src/**/*.test.*"
+  ],
+  "dependencies": {
+    "@unocss/core": "^66.7.2",
+    "@unocss/preset-wind3": "^66.7.2",
+    "unocss-preset-animations": "^1.3.0"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "sideEffects": false
+}
